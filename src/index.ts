@@ -36,7 +36,7 @@ const getBcraClientChequesRechazados = server.tool("get-bcra-client-cheques-rech
     async({ clientId }) => {
         process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // Ignora la verificación SSL (⚠️ No usar en producción)
         console.error(`Fetching BCRA client data for ID: ${clientId}`)
-        const response = await fetch(`https://api.bcra.gob.ar/CentralDeInformacion/v1.0/Deudas/ChequesRechazados/${clientId}`)
+        const response = await fetch(`https://api.bcra.gob.ar/CentralDeDeudores/v1.0/Deudas/ChequesRechazados/${clientId}`)
         const data = await response.json()
         return { 
             content: [
