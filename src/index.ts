@@ -76,6 +76,38 @@ const getBcraEntities = server.tool("get-bcra-entities",
     }
 )
 
+const getBCRAVariables = server.tool("get-bcra-variables",
+    async() => {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // Ignora la verificación SSL (⚠️ No usar en producción)
+        const response = await fetch(`https://api.bcra.gob.ar/estadisticas/v3.0/Monetarias`)
+        const data = await response.json()
+        return { 
+            content: [
+                { type: "text", text: JSON.stringify(data) }
+            ] 
+        }
+    }
+)
+
+const getBCRAvariablesHist = server.tool("get-bcra-var-hist",
+    {
+        IdVariable: z.number(),
+        fechaDesde: z.string(),
+        fechaHasta: z.string()
+    },
+    async({ IdVariable, fechaDesde, fechaHasta }) => {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // Ignora la verificación SSL (⚠️ No usar en producción)
+        console.error(`Fetching BCRA client data for ID: ${IdVariable}`)
+        const response = await fetch(`https://api.bcra.gob.ar/estadisticas/v3.0/monetarias/${IdVariable}?desde=${fechaDesde}&hasta=${fechaHasta}`)
+        const data = await response.json()
+        return { 
+            content: [
+                { type: "text", text: JSON.stringify(data) }
+            ] 
+        }
+    }
+)
+
 // Start receiving messages on stdin and sending messages on stdout
 const transport = new StdioServerTransport();
 await server.connect(transport);
