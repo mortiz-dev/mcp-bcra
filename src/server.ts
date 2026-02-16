@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { manifest } from "./manifest.js";
-import registerBcraTools from "./tools/bcra.js";
+import registerAllTools from "./tools/registerAllTools.js";
 
 export const createServer = () => {
   const server = new McpServer({
@@ -9,11 +9,7 @@ export const createServer = () => {
     description: manifest.description,
   });
 
-  // silence node warnings that may break MCP stdout/json
-  process.on("warning", () => {});
-
-  // Register tools
-  registerBcraTools(server);
+  registerAllTools(server);
 
   return server;
 };
