@@ -28,6 +28,48 @@ Servidor Model Context Protocol (MCP) para consumir APIs del Banco Central de la
 
 ```bash
 bun install
+bun run build
+```
+
+## Configuración en Clientes MCP
+
+### Claude Desktop
+
+Para usar este servidor en Claude Desktop, edita tu archivo de configuración:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+Añade la siguiente configuración (asegúrate de usar la **ruta absoluta** a tu proyecto):
+
+```json
+{
+  "mcpServers": {
+    "bcra": {
+      "command": "/RUTA/A/BUN",
+      "args": ["/RUTA/ABSOLUTA/A/ESTE/PROYECTO/dist/index.js"]
+    }
+  }
+}
+```
+
+> **Nota:** Se recomienda usar la ruta absoluta del ejecutable `bun` (puedes encontrarla ejecutando `which bun` en tu terminal) y la ruta absoluta al archivo `dist/index.js` de este proyecto para evitar errores de "No such file or directory" en Claude Desktop.
+
+### Cursor
+
+1. Ve a **Settings > Cursor Settings > MCP**.
+2. Haz clic en **+ Add New MCP Server**.
+3. Configura:
+   - **Name:** BCRA
+   - **Type:** `command`
+   - **Command:** `bun run /RUTA/ABSOLUTA/A/ESTE/PROYECTO/dist/index.js`
+4. Reinicia Cursor.
+
+### MCP Inspector (Depuración)
+
+Para probar las herramientas sin un cliente completo:
+
+```bash
+bunx @modelcontextprotocol/inspector bun dist/index.js
 ```
 
 ## Scripts
