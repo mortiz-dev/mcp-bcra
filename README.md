@@ -116,7 +116,3 @@ Convencion para nueva tool:
 2. Agregar llamada en `api.ts` del dominio.
 3. Registrar en `tools.ts` del dominio.
 4. Incluir test de exito y de falla.
-
-## Licencia
-
-ISC
