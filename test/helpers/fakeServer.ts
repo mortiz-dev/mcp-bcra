@@ -23,6 +23,13 @@ export class FakeServer {
       handler: maybeHandler as ToolHandler,
     });
   }
+
+  registerTool(name: string, config: { inputSchema?: unknown }, handler: ToolHandler): void {
+    this.tools.set(name, {
+      schema: config.inputSchema,
+      handler,
+    });
+  }
 }
 
 export const parseToolResult = (result: ToolHandlerResult): unknown =>

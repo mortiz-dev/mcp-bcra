@@ -12,12 +12,56 @@ Servidor Model Context Protocol (MCP) para consumir APIs del Banco Central de la
 
 ## Herramientas MCP
 
+### Central de Deudores
+
 - `get-bcra-client-central-deudores`
 - `get-bcra-client-central-deudores-historical`
 - `get-bcra-client-cheques-rechazados`
+
+### Cheques
+
 - `get-bcra-entities`
+- `get-bcra-cheque-denunciado`
+
+### Estadisticas
+
 - `get-bcra-variables`
 - `get-bcra-var-hist`
+
+### Estadisticas Cambiarias
+
+- `get-bcra-fx-currencies`
+- `get-bcra-fx-quotes`
+- `get-bcra-fx-quote-by-currency`
+
+### Transparencia
+
+- `get-bcra-transparencia-producto`
+
+## Parametros principales
+
+- `get-bcra-client-central-deudores`: `clientId`.
+- `get-bcra-client-central-deudores-historical`: `clientId`.
+- `get-bcra-client-cheques-rechazados`: `clientId`.
+- `get-bcra-entities`: sin parametros.
+- `get-bcra-cheque-denunciado`: `codigoEntidad`, `numeroCheque`.
+- `get-bcra-variables`: `limit`, `offset` opcionales.
+- `get-bcra-var-hist`: `idVariable`; `desde`, `hasta`, `limit`, `offset` opcionales.
+- `get-bcra-fx-currencies`: sin parametros.
+- `get-bcra-fx-quotes`: `fecha` opcional.
+- `get-bcra-fx-quote-by-currency`: `codMoneda`; `fechadesde`, `fechahasta`, `limit`, `offset` opcionales. Cuando se informa `limit`, debe estar entre 11 y 999.
+- `get-bcra-transparencia-producto`: `producto`, `codigoEntidad`.
+
+Valores validos de `producto` para Transparencia:
+
+- `cajasAhorros`
+- `cuentasCorrientes`
+- `prestamosPersonales`
+- `prestamosHipotecarios`
+- `prestamosPrendarios`
+- `tarjetas`
+- `cajasSeguridad`
+- `paquetes`
 
 ## Requisitos
 
@@ -89,6 +133,8 @@ bun run start
 - `src/domains/centralDeudores`: schemas, API y tools del dominio.
 - `src/domains/cheques`: schemas, API y tools del dominio.
 - `src/domains/estadisticas`: schemas, API y tools del dominio.
+- `src/domains/estadisticasCambiarias`: schemas, API y tools del dominio.
+- `src/domains/transparencia`: schemas, API y tools del dominio.
 - `src/tools/registerAllTools.ts`: orquestador de registro.
 
 ## Seguridad y robustez
@@ -107,6 +153,12 @@ Cambios:
 1. `get-bcra-var-hist` ahora usa `idVariable` (en lugar de `IdVariable`).
 2. `desde` y `hasta` son opcionales y usan formato `YYYY-MM-DD`.
 3. Los endpoints internos de Estadisticas apuntan a `/estadisticas/v4.0/Monetarias`.
+
+## Migracion: paginacion y cheques
+
+- `get-bcra-variables` y `get-bcra-var-hist` ahora aceptan `limit` y `offset` opcionales. Esto permite recorrer resultados cuando la API del BCRA pagina respuestas.
+- `get-bcra-client-cheques-rechazados` se mantiene para consultar cheques rechazados por identificacion dentro de Central de Deudores.
+- `get-bcra-cheque-denunciado` consulta la API oficial de Cheques Denunciados por `codigoEntidad` y `numeroCheque`.
 
 ## Desarrollo
 
