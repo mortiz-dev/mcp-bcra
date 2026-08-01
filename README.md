@@ -1,170 +1,167 @@
 # MCP BCRA
 
-Servidor Model Context Protocol (MCP) para consumir APIs del Banco Central de la Republica Argentina (BCRA).
+Servidor Model Context Protocol de solo lectura para consultar APIs públicas del Banco Central de la República Argentina (BCRA).
 
-## Stack
-
-- Bun (runtime/package manager recomendado)
-- TypeScript
-- `@modelcontextprotocol/sdk`
-- `zod`
-- Vitest
-
-## Herramientas MCP
-
-### Central de Deudores
-
-- `get-bcra-client-central-deudores`
-- `get-bcra-client-central-deudores-historical`
-- `get-bcra-client-cheques-rechazados`
-
-### Cheques
-
-- `get-bcra-entities`
-- `get-bcra-cheque-denunciado`
-
-### Estadisticas
-
-- `get-bcra-variables`
-- `get-bcra-var-hist`
-
-### Estadisticas Cambiarias
-
-- `get-bcra-fx-currencies`
-- `get-bcra-fx-quotes`
-- `get-bcra-fx-quote-by-currency`
-
-### Transparencia
-
-- `get-bcra-transparencia-producto`
-
-## Parametros principales
-
-- `get-bcra-client-central-deudores`: `clientId`.
-- `get-bcra-client-central-deudores-historical`: `clientId`.
-- `get-bcra-client-cheques-rechazados`: `clientId`.
-- `get-bcra-entities`: sin parametros.
-- `get-bcra-cheque-denunciado`: `codigoEntidad`, `numeroCheque`.
-- `get-bcra-variables`: `limit`, `offset` opcionales.
-- `get-bcra-var-hist`: `idVariable`; `desde`, `hasta`, `limit`, `offset` opcionales.
-- `get-bcra-fx-currencies`: sin parametros.
-- `get-bcra-fx-quotes`: `fecha` opcional.
-- `get-bcra-fx-quote-by-currency`: `codMoneda`; `fechadesde`, `fechahasta`, `limit`, `offset` opcionales. Cuando se informa `limit`, debe estar entre 11 y 999.
-- `get-bcra-transparencia-producto`: `producto`, `codigoEntidad`.
-
-Valores validos de `producto` para Transparencia:
-
-- `cajasAhorros`
-- `cuentasCorrientes`
-- `prestamosPersonales`
-- `prestamosHipotecarios`
-- `prestamosPrendarios`
-- `tarjetas`
-- `cajasSeguridad`
-- `paquetes`
+La versión 2 implementa MCP `2026-07-28` mediante `@modelcontextprotocol/server` v2 y mantiene compatibilidad stdio con clientes MCP de la era 2025. Todas las tools publican schemas de entrada y salida, metadatos de seguridad y respuestas estructuradas.
 
 ## Requisitos
 
-- Bun `>= 1.3`
-- Node.js `>= 18` (fallback)
+- Node.js 22 o 24 LTS.
+- Bun 1.3.11 para desarrollo y gestión del lockfile.
 
-## Instalacion
+## Instalación y ejecución
+
+Desde el checkout:
 
 ```bash
 bun install
 bun run build
+node dist/index.js
 ```
 
-## Configuración en Clientes MCP
+Una vez publicado en npm, el binario se podrá ejecutar con:
+
+```bash
+npx mcp-bcra
+```
+
+El servidor usa stdio. `stdout` queda reservado para el protocolo MCP; los errores operativos se escriben en `stderr`.
 
 ### Claude Desktop
-
-Para usar este servidor en Claude Desktop, edita tu archivo de configuración:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-Añade la siguiente configuración (asegúrate de usar la **ruta absoluta** a tu proyecto):
 
 ```json
 {
   "mcpServers": {
     "bcra": {
-      "command": "/RUTA/A/BUN",
-      "args": ["/RUTA/ABSOLUTA/A/ESTE/PROYECTO/dist/index.js"]
+      "command": "node",
+      "args": ["/RUTA/ABSOLUTA/mcp-bcra/dist/index.js"]
     }
   }
 }
 ```
 
-> **Nota:** Se recomienda usar la ruta absoluta del ejecutable `bun` (puedes encontrarla ejecutando `which bun` en tu terminal) y la ruta absoluta al archivo `dist/index.js` de este proyecto para evitar errores de "No such file or directory" en Claude Desktop.
+También puede usarse `bun` como comando. Siempre use rutas absolutas en clientes de escritorio.
 
-### Cursor
+## Herramientas
 
-1. Ve a **Settings > Cursor Settings > MCP**.
-2. Haz clic en **+ Add New MCP Server**.
-3. Configura:
-   - **Name:** BCRA
-   - **Type:** `command`
-   - **Command:** `bun run /RUTA/ABSOLUTA/A/ESTE/PROYECTO/dist/index.js`
-4. Reinicia Cursor.
+Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva de traducciones depende de cada API del BCRA.
 
-### MCP Inspector (Depuración)
+| Tool | Parámetros específicos |
+|---|---|
+| `get-bcra-client-central-deudores` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
+| `get-bcra-client-central-deudores-historical` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
+| `get-bcra-client-cheques-rechazados` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
+| `get-bcra-entities` | Sin parámetros específicos |
+| `get-bcra-cheque-denunciado` | `codigoEntidad`, `numeroCheque` numérico de hasta 19 caracteres |
+| `get-bcra-variables` | `idVariable`, `categoria`, `tipoSerie`, `periodicidad`, `unidadExpresion`, `limit`, `offset` opcionales |
+| `get-bcra-var-hist` | `idVariable`; `desde`, `hasta`, `limit` (máximo 3000), `offset` opcionales |
+| `get-bcra-metodologia` | `idVariable`, `limit`, `offset` opcionales |
+| `get-bcra-fx-currencies` | Sin parámetros específicos |
+| `get-bcra-fx-quotes` | `fecha` opcional |
+| `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
+| `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
 
-Para probar las herramientas sin un cliente completo:
+Las fechas usan `YYYY-MM-DD`, deben existir en el calendario y el final no puede ser anterior al inicio. Los números son JSON numbers estrictos: no se convierten strings ni booleanos.
 
-```bash
-bunx @modelcontextprotocol/inspector bun dist/index.js
+Productos válidos de Transparencia:
+
+- `cajasAhorros`
+- `paquetes`
+- `plazosFijos`
+- `prestamosPrendarios`
+- `prestamosHipotecarios`
+- `prestamosPersonales`
+- `tarjetas`
+
+Si `codigoEntidad` se omite, Transparencia consulta todas las entidades disponibles.
+
+## Contrato de respuesta
+
+Un resultado exitoso mantiene texto JSON para clientes anteriores y agrega `structuredContent` validado:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": 200,
+    "results": []
+  }
+}
 ```
 
-## Scripts
+Una falla funcional se devuelve con `isError: true` y un payload acotado. Los detalles internos de la respuesta upstream no se exponen al cliente MCP.
+
+## Seguridad y resiliencia
+
+El único cliente HTTP compartido aplica:
+
+- HTTPS obligatorio y origen fijo `https://api.bcra.gob.ar`.
+- Rechazo de URLs absolutas, paths ambiguos, fragmentos y redirects inesperados.
+- Deadline total configurable, incluyendo cola, fetch, body y backoff.
+- Cancelación MCP propagada hasta `fetch` y diferenciada de timeout.
+- Respuesta exitosa limitada a 2 MiB por defecto y cuerpo de error limitado a 32 KiB.
+- Máximo de 4 requests concurrentes, 5 inicios por segundo y cola FIFO de 32.
+- Hasta 2 reintentos adicionales solo para GET con HTTP 429, 502, 503 o 504; respeta `Retry-After` y el deadline.
+- Validación Zod tanto de inputs como de la envoltura upstream `{status, metadata?, results}`.
+- Tools anotadas `readOnlyHint: true` y `openWorldHint: true` porque consultan un servicio externo.
+
+Variables operativas:
+
+| Variable | Default | Rango aceptado |
+|---|---:|---:|
+| `BCRA_HTTP_TIMEOUT_MS` | 15000 | 100–60000 |
+| `BCRA_HTTP_MAX_RESPONSE_BYTES` | 2097152 | 65536–10485760 |
+| `BCRA_HTTP_MAX_CONCURRENCY` | 4 | 1–16 |
+| `BCRA_HTTP_RATE_LIMIT_PER_SECOND` | 5 | 1–20 |
+
+Los valores fuera de rango se ignoran y se usa el default seguro. Los límites son por proceso; varias instancias pueden compartir la misma IP y deben coordinar capacidad externamente.
+
+Este proyecto expone únicamente stdio local. Si se agrega un transporte HTTP remoto, debe incorporarse autenticación/autorización, validación de origen/host, TLS en el borde y límites distribuidos antes de exponerlo.
+
+## Privacidad y uso responsable
+
+Las consultas por CUIT/CUIL/CDI pueden involucrar información financiera personal. El operador es responsable de contar con base legal, autorización y controles de acceso adecuados. No registre identificadores, respuestas personales ni argumentos completos de tools.
+
+Los datos provienen de APIs públicas del [BCRA](https://www.bcra.gob.ar/BCRAyVos/catalogo-de-APIs-banco-central.asp), pueden sufrir demoras, cambios o indisponibilidad y deben contrastarse con la fuente oficial. Este servidor no brinda asesoramiento financiero, crediticio ni legal, y no debe tomar decisiones reguladas o adversas de manera automática.
+
+## Migración a 2.0.0
+
+Cambios incompatibles:
+
+1. Requiere Node.js 22 o superior y usa los paquetes MCP v2 separados.
+2. Transparencia elimina `cuentasCorrientes` y `cajasSeguridad`, corrige las rutas oficiales, agrega `plazosFijos` y hace `codigoEntidad` opcional.
+3. `clientId` exige exactamente 11 dígitos; los campos numéricos ya no se convierten implícitamente.
+4. Las fechas ahora se validan como fechas reales y los rangos invertidos fallan.
+5. Los límites y offsets están acotados.
+6. Los éxitos incorporan `structuredContent`; los errores se marcan con `isError: true`.
+7. Se agrega `get-bcra-metodologia` y filtros completos de Estadísticas v4.
+8. El entrypoint importable pasa a `dist/server.js`; `dist/index.js` queda como binario stdio.
+
+Un cliente que solo consumía el bloque de texto puede seguir parseando `{ok,data}`. Los clientes modernos deben preferir `structuredContent`.
+
+## Desarrollo y release
 
 ```bash
-bun run build
+bun run lint
+bun run typecheck
 bun run test
-bun run dev
-bun run start
+bun run test:e2e
+bun run test:coverage
+bun run build
+bun run pack:check
+bun run audit
+bun run release:check
 ```
 
-## Arquitectura modular
+`bun run smoke:live` realiza consultas públicas y no personales contra el BCRA, incluidos todos los productos de Transparencia. No forma parte del CI determinista.
 
-- `src/shared/http`: cliente HTTP BCRA y errores tipados.
-- `src/shared/mcp`: formato de respuesta MCP.
-- `src/shared/validation`: validadores zod reutilizables.
-- `src/domains/centralDeudores`: schemas, API y tools del dominio.
-- `src/domains/cheques`: schemas, API y tools del dominio.
-- `src/domains/estadisticas`: schemas, API y tools del dominio.
-- `src/domains/estadisticasCambiarias`: schemas, API y tools del dominio.
-- `src/domains/transparencia`: schemas, API y tools del dominio.
-- `src/tools/registerAllTools.ts`: orquestador de registro.
+Arquitectura:
 
-## Seguridad y robustez
+- Cada dominio contiene `schemas.ts`, `api.ts` y `tools.ts`.
+- `api.ts` solo conoce `BcraHttpClient` y valida la respuesta upstream.
+- `tools.ts` declara contratos MCP, pasa cancelación y transforma resultados.
+- `src/shared/http` centraliza origen, rate, retry, timeout, tamaños y errores.
+- `src/shared/mcp` centraliza registro, anotaciones y respuestas.
+- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 12 tools.
 
-- Sin bypass de TLS.
-- Timeout configurable por `BCRA_HTTP_TIMEOUT_MS` (default `15000`).
-- Manejo tipado de errores (`HTTP_ERROR`, `TIMEOUT`, `NETWORK_ERROR`, `UPSTREAM_INVALID_JSON`, `UPSTREAM_EMPTY_BODY`).
-- Respuesta MCP homogenea con `ok`, `data` o `error`.
-
-## Breaking change: Estadisticas v4
-
-En esta version se reemplazo la integracion de Estadisticas por `v4.0`.
-
-Cambios:
-
-1. `get-bcra-var-hist` ahora usa `idVariable` (en lugar de `IdVariable`).
-2. `desde` y `hasta` son opcionales y usan formato `YYYY-MM-DD`.
-3. Los endpoints internos de Estadisticas apuntan a `/estadisticas/v4.0/Monetarias`.
-
-## Migracion: paginacion y cheques
-
-- `get-bcra-variables` y `get-bcra-var-hist` ahora aceptan `limit` y `offset` opcionales. Esto permite recorrer resultados cuando la API del BCRA pagina respuestas.
-- `get-bcra-client-cheques-rechazados` se mantiene para consultar cheques rechazados por identificacion dentro de Central de Deudores.
-- `get-bcra-cheque-denunciado` consulta la API oficial de Cheques Denunciados por `codigoEntidad` y `numeroCheque`.
-
-## Desarrollo
-
-Convencion para nueva tool:
-
-1. Agregar `schemas.ts` en el dominio.
-2. Agregar llamada en `api.ts` del dominio.
-3. Registrar en `tools.ts` del dominio.
-4. Incluir test de exito y de falla.
+Para agregar una tool, actualice schemas, API, registro, pruebas de dominio/protocolo y este README si cambia el contrato.

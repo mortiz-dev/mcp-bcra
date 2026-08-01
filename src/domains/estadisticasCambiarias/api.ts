@@ -1,10 +1,15 @@
-import { BcraHttpClient } from "../../shared/http/bcraClient.js";
+import {
+  type BcraApiContext,
+  type BcraHttpClient,
+  toRequestOptions,
+} from "../../shared/http/bcraClient.js";
+import {
+  type BcraResponse,
+  parseBcraResponse,
+} from "../../shared/http/responseSchema.js";
 
-type FxQuoteParams = {
-  fecha?: string;
-};
-
-type FxQuoteByCurrencyParams = {
+export type FxQuoteParams = { fecha?: string };
+export type FxQuoteByCurrencyParams = {
   codMoneda: string;
   fechadesde?: string;
   fechahasta?: string;
@@ -13,33 +18,46 @@ type FxQuoteByCurrencyParams = {
 };
 
 export interface EstadisticasCambiariasApi {
-  getCurrencies(): Promise<unknown>;
-  getQuotes(params?: FxQuoteParams): Promise<unknown>;
-  getQuoteByCurrency(params: FxQuoteByCurrencyParams): Promise<unknown>;
+  getCurrencies(context?: BcraApiContext): Promise<BcraResponse>;
+  getQuotes(params?: FxQuoteParams, context?: BcraApiContext): Promise<BcraResponse>;
+  getQuoteByCurrency(
+    params: FxQuoteByCurrencyParams,
+    context?: BcraApiContext,
+  ): Promise<BcraResponse>;
 }
 
 export const createEstadisticasCambiariasApi = (
-  client: BcraHttpClient
+  client: BcraHttpClient,
 ): EstadisticasCambiariasApi => ({
-  getCurrencies(): Promise<unknown> {
-    return client.getJson("/estadisticascambiarias/v1.0/Maestros/Divisas");
+  async getCurrencies(context) {
+    const data = await client.getJson(
+      "/estadisticascambiarias/v1.0/Maestros/Divisas",
+      undefined,
+      toRequestOptions(context),
+    );
+    return parseBcraResponse(data, "currencies");
   },
 
-  getQuotes(params?: FxQuoteParams): Promise<unknown> {
-    return client.getJson("/estadisticascambiarias/v1.0/Cotizaciones", {
-      fecha: params?.fecha,
-    });
+  async getQuotes(params, context) {
+    const data = await client.getJson(
+      "/estadisticascambiarias/v1.0/Cotizaciones",
+      { fecha: params?.fecha },
+      toRequestOptions(context),
+    );
+    return parseBcraResponse(data, "exchange quotes");
   },
 
-  getQuoteByCurrency(params: FxQuoteByCurrencyParams): Promise<unknown> {
-    return client.getJson(
+  async getQuoteByCurrency(params, context) {
+    const data = await client.getJson(
       `/estadisticascambiarias/v1.0/Cotizaciones/${encodeURIComponent(params.codMoneda)}`,
       {
         fechadesde: params.fechadesde,
         fechahasta: params.fechahasta,
         limit: params.limit,
         offset: params.offset,
-      }
+      },
+      toRequestOptions(context),
     );
+    return parseBcraResponse(data, "currency exchange quote");
   },
 });

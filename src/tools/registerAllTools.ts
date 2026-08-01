@@ -1,5 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createBcraHttpClient } from "../shared/http/bcraClient.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { createCentralDeudoresApi } from "../domains/centralDeudores/api.js";
 import { registerCentralDeudoresTools } from "../domains/centralDeudores/tools.js";
 import { createChequesApi } from "../domains/cheques/api.js";
@@ -10,17 +9,21 @@ import { createEstadisticasCambiariasApi } from "../domains/estadisticasCambiari
 import { registerEstadisticasCambiariasTools } from "../domains/estadisticasCambiarias/tools.js";
 import { createTransparenciaApi } from "../domains/transparencia/api.js";
 import { registerTransparenciaTools } from "../domains/transparencia/tools.js";
+import {
+  type BcraHttpClient,
+  createBcraHttpClient,
+} from "../shared/http/bcraClient.js";
 
-export const registerAllTools = (server: McpServer): void => {
-  const client = createBcraHttpClient();
+export const registerAllTools = (
+  server: McpServer,
+  injectedClient?: BcraHttpClient,
+): void => {
+  const client = injectedClient ?? createBcraHttpClient();
 
   registerCentralDeudoresTools(server, createCentralDeudoresApi(client));
   registerChequesTools(server, createChequesApi(client));
   registerEstadisticasTools(server, createEstadisticasApi(client));
-  registerEstadisticasCambiariasTools(
-    server,
-    createEstadisticasCambiariasApi(client)
-  );
+  registerEstadisticasCambiariasTools(server, createEstadisticasCambiariasApi(client));
   registerTransparenciaTools(server, createTransparenciaApi(client));
 };
 

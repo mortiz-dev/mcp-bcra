@@ -1,47 +1,59 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ChequesApi } from "./api.js";
-import { clientIdSchema, reportedCheckSchema } from "./schemas.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { registerMcpTool } from "../../shared/mcp/registerTool.js";
-import { toolError, toolSuccess } from "../../shared/mcp/response.js";
+import type { ChequesApi } from "./api.js";
+import {
+  chequesResponseSchema,
+  clientIdSchema,
+  emptyChequesInputSchema,
+  reportedCheckSchema,
+} from "./schemas.js";
 
 export const registerChequesTools = (server: McpServer, api: ChequesApi): void => {
   registerMcpTool(
     server,
     "get-bcra-client-cheques-rechazados",
-    { inputSchema: clientIdSchema },
-    async (args: unknown) => {
-      try {
-        const { clientId } = clientIdSchema.parse(args);
-        const data = await api.getRejectedChecks(clientId);
-        return toolSuccess(data);
-      } catch (error) {
-        return toolError(error);
-      }
-    }
+    {
+      title: "Cheques rechazados por CUIT/CUIL/CDI",
+      description:
+        "Consulta cheques rechazados asociados a una identificación en la Central de Deudores del BCRA.",
+      inputSchema: clientIdSchema,
+      dataSchema: chequesResponseSchema,
+    },
+    ({ clientId, idioma }, context) =>
+      api.getRejectedChecks(clientId, {
+        idioma,
+        signal: context.mcpReq.signal,
+      }),
   );
 
-  registerMcpTool(server, "get-bcra-entities", {}, async () => {
-    try {
-      const data = await api.getEntities();
-      return toolSuccess(data);
-    } catch (error) {
-      return toolError(error);
-    }
-  });
+  registerMcpTool(
+    server,
+    "get-bcra-entities",
+    {
+      title: "Entidades financieras",
+      description:
+        "Lista las entidades disponibles en la API de cheques denunciados del BCRA.",
+      inputSchema: emptyChequesInputSchema,
+      dataSchema: chequesResponseSchema,
+    },
+    ({ idioma }, context) => api.getEntities({ idioma, signal: context.mcpReq.signal }),
+  );
 
   registerMcpTool(
     server,
     "get-bcra-cheque-denunciado",
-    { inputSchema: reportedCheckSchema },
-    async (args: unknown) => {
-      try {
-        const { codigoEntidad, numeroCheque } = reportedCheckSchema.parse(args);
-        const data = await api.getReportedCheck({ codigoEntidad, numeroCheque });
-        return toolSuccess(data);
-      } catch (error) {
-        return toolError(error);
-      }
-    }
+    {
+      title: "Cheque denunciado",
+      description:
+        "Verifica un número de cheque denunciado para una entidad financiera del BCRA.",
+      inputSchema: reportedCheckSchema,
+      dataSchema: chequesResponseSchema,
+    },
+    ({ codigoEntidad, numeroCheque, idioma }, context) =>
+      api.getReportedCheck(
+        { codigoEntidad, numeroCheque },
+        { idioma, signal: context.mcpReq.signal },
+      ),
   );
 };
 

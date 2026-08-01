@@ -1,48 +1,66 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { EstadisticasApi } from "./api.js";
-import { variablesSchema, varHistorySchema } from "./schemas.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { registerMcpTool } from "../../shared/mcp/registerTool.js";
-import { toolError, toolSuccess } from "../../shared/mcp/response.js";
+import type { EstadisticasApi } from "./api.js";
+import {
+  estadisticasResponseSchema,
+  methodologySchema,
+  varHistorySchema,
+  variablesSchema,
+} from "./schemas.js";
 
 export const registerEstadisticasTools = (
   server: McpServer,
-  api: EstadisticasApi
+  api: EstadisticasApi,
 ): void => {
   registerMcpTool(
     server,
     "get-bcra-variables",
-    { inputSchema: variablesSchema },
-    async (args: unknown) => {
-      try {
-        const { limit, offset } = variablesSchema.parse(args ?? {});
-        const data = await api.getVariables({ limit, offset });
-        return toolSuccess(data);
-      } catch (error) {
-        return toolError(error);
-      }
-    }
+    {
+      title: "Variables monetarias",
+      description:
+        "Lista y filtra las variables monetarias publicadas por Estadísticas v4 del BCRA.",
+      inputSchema: variablesSchema,
+      dataSchema: estadisticasResponseSchema,
+    },
+    ({ idioma, ...params }, context) =>
+      api.getVariables(params, {
+        idioma,
+        signal: context.mcpReq.signal,
+      }),
   );
 
   registerMcpTool(
     server,
     "get-bcra-var-hist",
-    { inputSchema: varHistorySchema },
-    async (args: unknown) => {
-      try {
-        const { idVariable, desde, hasta, limit, offset } =
-          varHistorySchema.parse(args);
-        const data = await api.getVariableHistory({
-          idVariable,
-          desde,
-          hasta,
-          limit,
-          offset,
-        });
-        return toolSuccess(data);
-      } catch (error) {
-        return toolError(error);
-      }
-    }
+    {
+      title: "Historia de variable monetaria",
+      description:
+        "Consulta la serie histórica de una variable monetaria del BCRA, con rango de fechas y paginación.",
+      inputSchema: varHistorySchema,
+      dataSchema: estadisticasResponseSchema,
+    },
+    ({ idioma, ...params }, context) =>
+      api.getVariableHistory(params, {
+        idioma,
+        signal: context.mcpReq.signal,
+      }),
+  );
+
+  registerMcpTool(
+    server,
+    "get-bcra-metodologia",
+    {
+      title: "Metodología de variables monetarias",
+      description:
+        "Consulta la metodología oficial de las variables monetarias publicadas por el BCRA.",
+      inputSchema: methodologySchema,
+      dataSchema: estadisticasResponseSchema,
+    },
+    ({ idioma, ...params }, context) =>
+      api.getMethodology(params, {
+        idioma,
+        signal: context.mcpReq.signal,
+      }),
   );
 };
 

@@ -1,48 +1,48 @@
-import { DomainApiError, isDomainApiError } from "../http/errors.js";
+import type { CallToolResult, JSONValue } from "@modelcontextprotocol/server";
+import { z } from "zod";
+import { isDomainApiError } from "../http/errors.js";
 
-export type ToolHandlerResult = {
-  content: Array<{ type: "text"; text: string }>;
+export type ToolHandlerResult = CallToolResult;
+
+export const successOutputSchema = <T extends z.ZodType>(dataSchema: T) =>
+  z.object({
+    ok: z.literal(true),
+    data: dataSchema,
+  });
+
+export const toolSuccess = (data: JSONValue): ToolHandlerResult => {
+  const payload = { ok: true as const, data };
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }],
+    structuredContent: payload,
+  };
 };
-
-const toText = (payload: unknown): ToolHandlerResult => ({
-  content: [{ type: "text", text: JSON.stringify(payload) }],
-});
-
-export const toolSuccess = (data: unknown): ToolHandlerResult =>
-  toText({ ok: true, data });
 
 export const toolError = (error: unknown): ToolHandlerResult => {
-  if (isDomainApiError(error)) {
-    return toText({
-      ok: false,
-      error: {
-        kind: error.kind,
-        message: error.message,
-        source: error.source,
-        statusCode: error.statusCode,
-      },
-    });
-  }
+  const payload = isDomainApiError(error)
+    ? {
+        ok: false as const,
+        error: {
+          kind: error.kind,
+          message: error.message,
+          source: error.source,
+          ...(error.statusCode === undefined ? {} : { statusCode: error.statusCode }),
+          ...(error.retryAfterMs === undefined
+            ? {}
+            : { retryAfterMs: error.retryAfterMs }),
+        },
+      }
+    : {
+        ok: false as const,
+        error: {
+          kind: "UNKNOWN",
+          message: error instanceof Error ? error.message : "Unexpected error",
+          source: "mcp-bcra",
+        },
+      };
 
-  return toText({
-    ok: false,
-    error: {
-      kind: "UNKNOWN",
-      message: error instanceof Error ? error.message : "Unexpected error",
-      source: "mcp-bcra",
-    },
-  });
-};
-
-export const toDomainApiError = (error: unknown, message: string): DomainApiError => {
-  if (isDomainApiError(error)) {
-    return error;
-  }
-
-  return new DomainApiError({
-    kind: "NETWORK_ERROR",
-    message,
-    source: "mcp-bcra",
-    details: error,
-  });
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }],
+    isError: true,
+  };
 };

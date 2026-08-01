@@ -1,28 +1,62 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ToolHandlerResult } from "./response.js";
+import type {
+  JSONValue,
+  McpServer,
+  ServerContext,
+  StandardSchemaWithJSON,
+  ToolAnnotations,
+  ToolCallback,
+} from "@modelcontextprotocol/server";
+import type { z } from "zod";
+import { successOutputSchema, toolError, toolSuccess } from "./response.js";
 
-type ToolRegistrationConfig = {
-  inputSchema?: unknown;
+const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: true,
+  openWorldHint: true,
 };
 
-type ToolRegistrationCallback = (
-  args: unknown
-) => ToolHandlerResult | Promise<ToolHandlerResult>;
-
-type ToolRegistrar = {
-  registerTool(
-    name: string,
-    config: ToolRegistrationConfig,
-    callback: ToolRegistrationCallback
-  ): unknown;
+type ToolRegistrationConfig<
+  InputSchema extends z.ZodType & StandardSchemaWithJSON,
+  DataSchema extends z.ZodType & StandardSchemaWithJSON,
+> = {
+  title: string;
+  description: string;
+  inputSchema: InputSchema;
+  dataSchema: DataSchema;
+  annotations?: ToolAnnotations;
 };
 
-export const registerMcpTool = (
+export const registerMcpTool = <
+  InputSchema extends z.ZodType & StandardSchemaWithJSON,
+  DataSchema extends z.ZodType & StandardSchemaWithJSON,
+>(
   server: McpServer,
   name: string,
-  config: ToolRegistrationConfig,
-  callback: ToolRegistrationCallback
+  config: ToolRegistrationConfig<InputSchema, DataSchema>,
+  callback: (
+    args: StandardSchemaWithJSON.InferOutput<InputSchema>,
+    context: ServerContext,
+  ) => JSONValue | Promise<JSONValue>,
 ): void => {
-  const registrar = server as unknown as ToolRegistrar;
-  registrar.registerTool(name, config, callback);
+  const handler = async (
+    args: StandardSchemaWithJSON.InferOutput<InputSchema>,
+    context: ServerContext,
+  ) => {
+    try {
+      return toolSuccess(await callback(args, context));
+    } catch (error) {
+      return toolError(error);
+    }
+  };
+
+  server.registerTool(
+    name,
+    {
+      title: config.title,
+      description: config.description,
+      inputSchema: config.inputSchema,
+      outputSchema: successOutputSchema(config.dataSchema),
+      annotations: config.annotations ?? READ_ONLY_ANNOTATIONS,
+    },
+    handler as ToolCallback<InputSchema>,
+  );
 };

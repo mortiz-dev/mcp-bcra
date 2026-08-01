@@ -1,15 +1,22 @@
 export type DomainApiErrorKind =
+  | "CANCELLED"
   | "HTTP_ERROR"
+  | "INVALID_REQUEST_PATH"
   | "TIMEOUT"
   | "NETWORK_ERROR"
+  | "OVERLOADED"
   | "UPSTREAM_INVALID_JSON"
-  | "UPSTREAM_EMPTY_BODY";
+  | "UPSTREAM_EMPTY_BODY"
+  | "UPSTREAM_REDIRECT"
+  | "UPSTREAM_RESPONSE_TOO_LARGE"
+  | "UPSTREAM_SCHEMA_MISMATCH";
 
 export class DomainApiError extends Error {
-  kind: DomainApiErrorKind;
-  statusCode?: number;
-  source: string;
-  details?: unknown;
+  readonly kind: DomainApiErrorKind;
+  readonly statusCode?: number;
+  readonly source: string;
+  readonly details?: unknown;
+  readonly retryAfterMs?: number;
 
   constructor(params: {
     kind: DomainApiErrorKind;
@@ -17,6 +24,7 @@ export class DomainApiError extends Error {
     source: string;
     statusCode?: number;
     details?: unknown;
+    retryAfterMs?: number;
   }) {
     super(params.message);
     this.name = "DomainApiError";
@@ -24,6 +32,7 @@ export class DomainApiError extends Error {
     this.source = params.source;
     this.statusCode = params.statusCode;
     this.details = params.details;
+    this.retryAfterMs = params.retryAfterMs;
   }
 }
 

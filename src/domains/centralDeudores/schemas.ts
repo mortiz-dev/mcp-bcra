@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { nonEmptyString } from "../../shared/validation/common.js";
+import { bcraResponseSchema } from "../../shared/http/responseSchema.js";
+import { cuitCuilCdi, localeInput } from "../../shared/validation/common.js";
 
-export const clientIdInput = { clientId: nonEmptyString };
-export const clientIdSchema = z.object(clientIdInput);
+export const clientIdSchema = z
+  .object({ clientId: cuitCuilCdi, ...localeInput })
+  .strict();
+export const centralDeudoresResponseSchema = bcraResponseSchema;
