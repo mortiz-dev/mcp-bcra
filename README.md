@@ -56,6 +56,7 @@ Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva 
 | `get-bcra-variables` | `idVariable`, `categoria`, `tipoSerie`, `periodicidad`, `unidadExpresion`, `limit`, `offset` opcionales |
 | `get-bcra-var-hist` | `idVariable`; `desde`, `hasta`, `limit` (máximo 3000), `offset` opcionales |
 | `get-bcra-metodologia` | `idVariable`, `limit`, `offset` opcionales |
+| `get-bcra-series-excel-catalog` | `idVariable`, `buscar`, `limit` (1–100, default 50), `offset` opcionales |
 | `get-bcra-fx-currencies` | Sin parámetros específicos |
 | `get-bcra-fx-quotes` | `fecha` opcional |
 | `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
@@ -74,6 +75,12 @@ Productos válidos de Transparencia:
 - `tarjetas`
 
 Si `codigoEntidad` se omite, Transparencia consulta todas las entidades disponibles.
+
+### Catálogo Excel de series
+
+`get-bcra-series-excel-catalog` lee el [listado XLSX oficial de variables de Series.xlsm](https://www.bcra.gob.ar/datos-monetarios-diarios/). Devuelve el identificador de API, descripción, tipo de serie, periodicidad, unidad y moneda, además de `sourceUrl`, `sourcePage`, `format`, `total` y `results`. `buscar` filtra la descripción sin distinguir mayúsculas; `idVariable` selecciona un identificador exacto. La paginación se aplica después de filtrar. Esta planilla es un **catálogo**, no contiene las observaciones históricas: para obtener valores use `get-bcra-var-hist` con el `idVariable` encontrado.
+
+El archivo se descarga en cada llamada desde una ruta fija de `www.bcra.gob.ar`. Se limita el tamaño de la respuesta y se rechaza una estructura de columnas inesperada con `UPSTREAM_SCHEMA_MISMATCH`. La planilla está en español; `idioma` solo se envía como preferencia HTTP y no traduce sus celdas. Esta integración acepta XLSX; los archivos históricos `.xls` y los libros `.xlsm` publicados por el BCRA requieren adaptadores y validaciones por documento antes de exponer sus datos.
 
 ## Contrato de respuesta
 
@@ -95,7 +102,7 @@ Una falla funcional se devuelve con `isError: true` y un payload acotado. Los de
 
 El único cliente HTTP compartido aplica:
 
-- HTTPS obligatorio y origen fijo `https://api.bcra.gob.ar`.
+- HTTPS obligatorio y orígenes fijos `https://api.bcra.gob.ar` para JSON y `https://www.bcra.gob.ar` para el catálogo XLSX.
 - Rechazo de URLs absolutas, paths ambiguos, fragmentos y redirects inesperados.
 - Deadline total configurable, incluyendo cola, fetch, body y backoff.
 - Cancelación MCP propagada hasta `fetch` y diferenciada de timeout.
@@ -155,6 +162,8 @@ bun run release:check
 
 `bun run smoke:live` realiza consultas públicas y no personales contra el BCRA, incluidos todos los productos de Transparencia. No forma parte del CI determinista.
 
+Próximas incorporaciones recomendadas: leer series que el BCRA publica solo en XLS, empezando por los [préstamos UVA diarios y mensuales](https://www.bcra.gob.ar/prestamos-y-otros-activos-de-las-entidades-financieras/), con esquema explícito, unidad, período y fuente por observación. También conviene comparar periódicamente las series del catálogo XLSX con Estadísticas v4 para detectar IDs discontinuados o cambios de metadatos.
+
 Arquitectura:
 
 - Cada dominio contiene `schemas.ts`, `api.ts` y `tools.ts`.
@@ -162,6 +171,10 @@ Arquitectura:
 - `tools.ts` declara contratos MCP, pasa cancelación y transforma resultados.
 - `src/shared/http` centraliza origen, rate, retry, timeout, tamaños y errores.
 - `src/shared/mcp` centraliza registro, anotaciones y respuestas.
-- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 12 tools.
+- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 13 tools.
 
 Para agregar una tool, actualice schemas, API, registro, pruebas de dominio/protocolo y este README si cambia el contrato.
+
+## Migración: catálogo Excel
+
+Se agrega `get-bcra-series-excel-catalog` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluir la nueva tool. El resultado tiene contrato propio de catálogo y no la envoltura `{status, results}` de las APIs JSON. Su `idVariable` puede usarse en `get-bcra-var-hist`. Quien inyecte un `BcraHttpClient` propio debe implementar `getDocument` para usar esta tool; `getJson` sigue siendo suficiente para las anteriores.

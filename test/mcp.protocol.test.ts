@@ -44,6 +44,7 @@ describe("MCP 2026-07-28 protocol", () => {
       "get-bcra-fx-quote-by-currency",
       "get-bcra-fx-quotes",
       "get-bcra-metodologia",
+      "get-bcra-series-excel-catalog",
       "get-bcra-transparencia-producto",
       "get-bcra-var-hist",
       "get-bcra-variables",
@@ -85,7 +86,16 @@ describe("MCP 2026-07-28 protocol", () => {
 
   it("executes the complete tool catalog through the real protocol", async () => {
     const getJson = vi.fn().mockResolvedValue({ status: 200, results: [] });
-    const client = await connectModernClient({ getJson });
+    const getDocument = vi
+      .fn()
+      .mockResolvedValue(
+        new Uint8Array(
+          await import("node:fs/promises").then((fs) =>
+            fs.readFile(new URL("./fixtures/series-catalog.xlsx", import.meta.url)),
+          ),
+        ),
+      );
+    const client = await connectModernClient({ getJson, getDocument });
     const calls = [
       ["get-bcra-client-central-deudores", { clientId: "20123456789" }],
       ["get-bcra-client-central-deudores-historical", { clientId: "20123456789" }],
@@ -98,6 +108,7 @@ describe("MCP 2026-07-28 protocol", () => {
         { idVariable: 1, desde: "2024-01-01", hasta: "2024-01-31" },
       ],
       ["get-bcra-metodologia", { idVariable: 1 }],
+      ["get-bcra-series-excel-catalog", { buscar: "base", limit: 10 }],
       ["get-bcra-fx-currencies", {}],
       ["get-bcra-fx-quotes", { fecha: "2024-01-31" }],
       ["get-bcra-fx-quote-by-currency", { codMoneda: "USD", limit: 10 }],
@@ -109,6 +120,7 @@ describe("MCP 2026-07-28 protocol", () => {
       expect(result.isError).not.toBe(true);
     }
     expect(getJson).toHaveBeenCalledTimes(12);
+    expect(getDocument).toHaveBeenCalledTimes(1);
   });
 
   it("marks domain failures as tool errors without leaking details", async () => {

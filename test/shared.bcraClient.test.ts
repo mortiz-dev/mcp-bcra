@@ -21,6 +21,40 @@ const clientWith = (
   });
 
 describe("BcraHttpClient", () => {
+  it("downloads a bounded XLSX from the fixed BCRA document origin", async () => {
+    const bytes = new Uint8Array([80, 75, 3, 4]);
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(bytes, { status: 200 }));
+    const client = clientWith(fetchFn);
+
+    await expect(client.getDocument("/archivos/file.xlsx")).resolves.toEqual(bytes);
+    expect(String(fetchFn.mock.calls[0]?.[0])).toBe(
+      "https://www.bcra.gob.ar/archivos/file.xlsx",
+    );
+    expect(fetchFn.mock.calls[0]?.[1]).toMatchObject({
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      },
+    });
+  });
+
+  it("rejects oversized or external document responses", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(new Uint8Array(5), { status: 200 }));
+    const client = clientWith(fetchFn, { maxResponseBytes: 4 });
+    await expect(client.getDocument("/file.xlsx")).rejects.toMatchObject({
+      kind: "UPSTREAM_RESPONSE_TOO_LARGE",
+    });
+    await expect(client.getDocument("//evil.example/file.xlsx")).rejects.toMatchObject({
+      kind: "INVALID_REQUEST_PATH",
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it("builds only the BCRA URL and forwards query, locale and safe fetch options", async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

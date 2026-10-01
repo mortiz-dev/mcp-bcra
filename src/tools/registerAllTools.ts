@@ -7,6 +7,8 @@ import { createEstadisticasApi } from "../domains/estadisticas/api.js";
 import { registerEstadisticasTools } from "../domains/estadisticas/tools.js";
 import { createEstadisticasCambiariasApi } from "../domains/estadisticasCambiarias/api.js";
 import { registerEstadisticasCambiariasTools } from "../domains/estadisticasCambiarias/tools.js";
+import { createSeriesExcelApi } from "../domains/seriesExcel/api.js";
+import { registerSeriesExcelTools } from "../domains/seriesExcel/tools.js";
 import { createTransparenciaApi } from "../domains/transparencia/api.js";
 import { registerTransparenciaTools } from "../domains/transparencia/tools.js";
 import {
@@ -24,6 +26,7 @@ export const registerAllTools = (
   registerChequesTools(server, createChequesApi(client));
   registerEstadisticasTools(server, createEstadisticasApi(client));
   registerEstadisticasCambiariasTools(server, createEstadisticasCambiariasApi(client));
+  registerSeriesExcelTools(server, createSeriesExcelApi(client));
   registerTransparenciaTools(server, createTransparenciaApi(client));
 };
 

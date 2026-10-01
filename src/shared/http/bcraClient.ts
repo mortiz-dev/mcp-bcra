@@ -26,6 +26,7 @@ export type BcraHttpClient = {
     query?: Record<string, QueryValue>,
     opts?: RequestOptions,
   ): Promise<unknown>;
+  getDocument?(path: string, opts?: RequestOptions): Promise<Uint8Array>;
 };
 
 export type BcraHttpClientConfig = {
@@ -41,6 +42,7 @@ export type BcraHttpClientConfig = {
 };
 
 const BASE_URL = new URL("https://api.bcra.gob.ar");
+const DOCUMENT_BASE_URL = new URL("https://www.bcra.gob.ar");
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const ERROR_BODY_MAX_BYTES = 32 * 1024;
@@ -68,7 +70,11 @@ const boundedEnvInt = (
     : fallback;
 };
 
-const buildUrl = (path: string, query?: Record<string, QueryValue>): URL => {
+const buildUrl = (
+  path: string,
+  baseUrl: URL,
+  query?: Record<string, QueryValue>,
+): URL => {
   if (
     !path.startsWith("/") ||
     path.startsWith("//") ||
@@ -82,10 +88,10 @@ const buildUrl = (path: string, query?: Record<string, QueryValue>): URL => {
     });
   }
 
-  const url = new URL(path, BASE_URL);
+  const url = new URL(path, baseUrl);
   if (
     url.protocol !== "https:" ||
-    url.origin !== BASE_URL.origin ||
+    url.origin !== baseUrl.origin ||
     url.username !== "" ||
     url.password !== ""
   ) {
@@ -125,12 +131,12 @@ const readBody = async (
   response: Response,
   maxBytes: number,
   truncate: boolean,
-): Promise<{ text: string; truncated: boolean }> => {
+): Promise<{ bytes: Uint8Array; truncated: boolean }> => {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
     if (truncate) {
       await response.body?.cancel();
-      return { text: "", truncated: true };
+      return { bytes: new Uint8Array(), truncated: true };
     }
     await response.body?.cancel();
     throw new DomainApiError({
@@ -142,25 +148,23 @@ const readBody = async (
   }
 
   if (!response.body) {
-    return { text: "", truncated: false };
+    return { bytes: new Uint8Array(), truncated: false };
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let bytes = 0;
-  let text = "";
+  const chunks: Uint8Array[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) {
-      text += decoder.decode();
-      return { text, truncated: false };
+      return { bytes: new Uint8Array(Buffer.concat(chunks)), truncated: false };
     }
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       await reader.cancel();
       if (truncate) {
-        return { text, truncated: true };
+        return { bytes: new Uint8Array(Buffer.concat(chunks)), truncated: true };
       }
       throw new DomainApiError({
         kind: "UPSTREAM_RESPONSE_TOO_LARGE",
@@ -169,7 +173,7 @@ const readBody = async (
         statusCode: response.status,
       });
     }
-    text += decoder.decode(value, { stream: true });
+    chunks.push(value);
   }
 };
 
@@ -194,13 +198,14 @@ const parseRetryAfter = (
 
 const readHttpErrorDetails = async (response: Response): Promise<unknown> => {
   try {
-    const { text, truncated } = await readBody(response, ERROR_BODY_MAX_BYTES, true);
+    const { bytes, truncated } = await readBody(response, ERROR_BODY_MAX_BYTES, true);
     if (truncated) {
       return { truncated: true };
     }
-    if (text.length === 0) {
+    if (bytes.length === 0) {
       return undefined;
     }
+    const text = new TextDecoder().decode(bytes);
     try {
       return JSON.parse(text) as unknown;
     } catch {
@@ -246,144 +251,167 @@ export const createBcraHttpClient = (
     now,
   });
 
-  return {
-    async getJson(
-      path: string,
-      query?: Record<string, QueryValue>,
-      opts?: RequestOptions,
-    ): Promise<unknown> {
-      const url = buildUrl(path, query);
-      const requestTimeoutMs = opts?.timeoutMs ?? timeoutMs;
-      const deadlineAt = now() + requestTimeoutMs;
-      const controller = new AbortController();
-      let abortKind: "TIMEOUT" | "CANCELLED" | undefined;
-      const onExternalAbort = () => {
-        if (!abortKind) {
-          abortKind = "CANCELLED";
-          controller.abort(opts?.signal?.reason);
-        }
-      };
-      if (opts?.signal?.aborted) {
-        onExternalAbort();
-      } else {
-        opts?.signal?.addEventListener("abort", onExternalAbort, { once: true });
+  const request = async (
+    path: string,
+    baseUrl: URL,
+    format: "json" | "document",
+    query?: Record<string, QueryValue>,
+    opts?: RequestOptions,
+  ): Promise<unknown | Uint8Array> => {
+    const url = buildUrl(path, baseUrl, query);
+    const requestTimeoutMs = opts?.timeoutMs ?? timeoutMs;
+    const deadlineAt = now() + requestTimeoutMs;
+    const controller = new AbortController();
+    let abortKind: "TIMEOUT" | "CANCELLED" | undefined;
+    const onExternalAbort = () => {
+      if (!abortKind) {
+        abortKind = "CANCELLED";
+        controller.abort(opts?.signal?.reason);
       }
-      const timeout = setTimeout(() => {
-        if (!abortKind) {
-          abortKind = "TIMEOUT";
-          controller.abort(new Error("BCRA request deadline exceeded"));
-        }
-      }, requestTimeoutMs);
+    };
+    if (opts?.signal?.aborted) {
+      onExternalAbort();
+    } else {
+      opts?.signal?.addEventListener("abort", onExternalAbort, { once: true });
+    }
+    const timeout = setTimeout(() => {
+      if (!abortKind) {
+        abortKind = "TIMEOUT";
+        controller.abort(new Error("BCRA request deadline exceeded"));
+      }
+    }, requestTimeoutMs);
 
-      try {
-        for (let attempt = 0; ; attempt += 1) {
-          const release = await gate.acquire(controller.signal);
-          let response: Response;
-          try {
-            response = await fetchFn(url, {
-              method: "GET",
-              headers: {
-                Accept: "application/json",
-                ...(opts?.locale ? { "Accept-Language": opts.locale } : {}),
-              },
-              redirect: "manual",
-              signal: controller.signal,
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const release = await gate.acquire(controller.signal);
+        let response: Response;
+        try {
+          response = await fetchFn(url, {
+            method: "GET",
+            headers: {
+              Accept:
+                format === "json"
+                  ? "application/json"
+                  : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              ...(opts?.locale ? { "Accept-Language": opts.locale } : {}),
+            },
+            redirect: "manual",
+            signal: controller.signal,
+          });
+
+          if (REDIRECT_STATUSES.has(response.status)) {
+            await response.body?.cancel();
+            throw new DomainApiError({
+              kind: "UPSTREAM_REDIRECT",
+              message: `BCRA API returned an unexpected redirect (${response.status})`,
+              source: "bcra",
+              statusCode: response.status,
             });
+          }
 
-            if (REDIRECT_STATUSES.has(response.status)) {
-              await response.body?.cancel();
-              throw new DomainApiError({
-                kind: "UPSTREAM_REDIRECT",
-                message: `BCRA API returned an unexpected redirect (${response.status})`,
-                source: "bcra",
-                statusCode: response.status,
-              });
-            }
-
-            if (RETRYABLE_STATUSES.has(response.status) && attempt < maxRetries) {
-              const retryAfterMs = parseRetryAfter(
-                response.headers.get("retry-after"),
-                now,
-              );
-              const exponentialMs = 250 * 2 ** attempt;
-              const delayMs =
-                retryAfterMs ?? Math.round(exponentialMs * (0.5 + random() / 2));
-              await response.body?.cancel();
-              release();
-              if (delayMs >= deadlineAt - now()) {
-                throw new DomainApiError({
-                  kind: "HTTP_ERROR",
-                  message: `BCRA API returned HTTP ${response.status}`,
-                  source: "bcra",
-                  statusCode: response.status,
-                  retryAfterMs: delayMs,
-                });
-              }
-              await abortableDelay(delayMs, controller.signal);
-              continue;
-            }
-
-            if (!response.ok) {
-              const details = await readHttpErrorDetails(response);
+          if (RETRYABLE_STATUSES.has(response.status) && attempt < maxRetries) {
+            const retryAfterMs = parseRetryAfter(
+              response.headers.get("retry-after"),
+              now,
+            );
+            const exponentialMs = 250 * 2 ** attempt;
+            const delayMs =
+              retryAfterMs ?? Math.round(exponentialMs * (0.5 + random() / 2));
+            await response.body?.cancel();
+            release();
+            if (delayMs >= deadlineAt - now()) {
               throw new DomainApiError({
                 kind: "HTTP_ERROR",
                 message: `BCRA API returned HTTP ${response.status}`,
                 source: "bcra",
                 statusCode: response.status,
-                details,
-                retryAfterMs: parseRetryAfter(response.headers.get("retry-after"), now),
+                retryAfterMs: delayMs,
               });
             }
-
-            const { text } = await readBody(response, maxResponseBytes, false);
-            if (text.length === 0) {
-              if (opts?.allowEmptyBody) {
-                return null;
-              }
-              throw new DomainApiError({
-                kind: "UPSTREAM_EMPTY_BODY",
-                message: "BCRA API returned an empty response body",
-                source: "bcra",
-                statusCode: response.status,
-              });
-            }
-            try {
-              return JSON.parse(text) as unknown;
-            } catch {
-              throw new DomainApiError({
-                kind: "UPSTREAM_INVALID_JSON",
-                message: "BCRA API returned invalid JSON",
-                source: "bcra",
-                statusCode: response.status,
-              });
-            }
-          } finally {
-            release();
+            await abortableDelay(delayMs, controller.signal);
+            continue;
           }
+
+          if (!response.ok) {
+            const details = await readHttpErrorDetails(response);
+            throw new DomainApiError({
+              kind: "HTTP_ERROR",
+              message: `BCRA API returned HTTP ${response.status}`,
+              source: "bcra",
+              statusCode: response.status,
+              details,
+              retryAfterMs: parseRetryAfter(response.headers.get("retry-after"), now),
+            });
+          }
+
+          const { bytes } = await readBody(response, maxResponseBytes, false);
+          if (bytes.length === 0) {
+            if (opts?.allowEmptyBody) {
+              return null;
+            }
+            throw new DomainApiError({
+              kind: "UPSTREAM_EMPTY_BODY",
+              message: "BCRA API returned an empty response body",
+              source: "bcra",
+              statusCode: response.status,
+            });
+          }
+          if (format === "document") {
+            return bytes;
+          }
+          try {
+            return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+          } catch {
+            throw new DomainApiError({
+              kind: "UPSTREAM_INVALID_JSON",
+              message: "BCRA API returned invalid JSON",
+              source: "bcra",
+              statusCode: response.status,
+            });
+          }
+        } finally {
+          release();
         }
-      } catch (error) {
-        if (abortKind) {
-          throw new DomainApiError({
-            kind: abortKind,
-            message:
-              abortKind === "TIMEOUT"
-                ? `BCRA API request timed out after ${requestTimeoutMs}ms`
-                : "BCRA API request was cancelled",
-            source: "bcra",
-          });
-        }
-        if (isDomainApiError(error)) {
-          throw error;
-        }
+      }
+    } catch (error) {
+      if (abortKind) {
         throw new DomainApiError({
-          kind: "NETWORK_ERROR",
-          message: error instanceof Error ? error.message : "Unknown network error",
+          kind: abortKind,
+          message:
+            abortKind === "TIMEOUT"
+              ? `BCRA API request timed out after ${requestTimeoutMs}ms`
+              : "BCRA API request was cancelled",
           source: "bcra",
         });
-      } finally {
-        clearTimeout(timeout);
-        opts?.signal?.removeEventListener("abort", onExternalAbort);
       }
+      if (isDomainApiError(error)) {
+        throw error;
+      }
+      throw new DomainApiError({
+        kind: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Unknown network error",
+        source: "bcra",
+      });
+    } finally {
+      clearTimeout(timeout);
+      opts?.signal?.removeEventListener("abort", onExternalAbort);
+    }
+  };
+
+  return {
+    getJson(path, query, opts): Promise<unknown> {
+      return request(path, BASE_URL, "json", query, opts);
+    },
+    async getDocument(path, opts): Promise<Uint8Array> {
+      const data = await request(path, DOCUMENT_BASE_URL, "document", undefined, opts);
+      if (!(data instanceof Uint8Array)) {
+        throw new DomainApiError({
+          kind: "UPSTREAM_SCHEMA_MISMATCH",
+          message: "BCRA document response was not binary",
+          source: "bcra",
+        });
+      }
+      return data;
     },
   };
 };
