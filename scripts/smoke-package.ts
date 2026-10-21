@@ -79,8 +79,9 @@ try {
     await client.connect(transport);
     const { tools } = await client.listTools();
     if (
-      tools.length !== 12 ||
-      !tools.some((tool) => tool.name === "get-bcra-metodologia")
+      tools.length !== 13 ||
+      !tools.some((tool) => tool.name === "get-bcra-metodologia") ||
+      !tools.some((tool) => tool.name === "get-bcra-series-excel-catalog")
     ) {
       throw new Error(`Unexpected packaged tool catalog (${tools.length} tools)`);
     }
@@ -90,7 +91,7 @@ try {
   if (stderr !== "") {
     throw new Error(`Packaged server wrote to stderr: ${stderr}`);
   }
-  console.log("Packaged binary smoke OK: modern MCP, 12 tools");
+  console.log("Packaged binary smoke OK: modern MCP, 13 tools");
 } finally {
   rmSync(workspace, { recursive: true, force: true });
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added an opt-in Streamable HTTP transport (`MCP_TRANSPORT=http`) that acts as an OAuth 2.1 resource server: OIDC JWT validation (issuer, audience, expiry, signature, optional scopes and roles), Protected Resource Metadata at `/.well-known/oauth-protected-resource`, and `401`/`403` `WWW-Authenticate` challenges.
+- HTTP mode refuses to start without issuer, audience, and resource URL unless `MCP_AUTH_INSECURE_DEV=true`.
+- stdio stays the default and does not require authentication.
+- Documented Microsoft Entra ID, Okta, and Auth0 setup, and added a Dockerfile plus a Compose example.
+
 ## 2.0.0 — 2026-07-31
 
 - Migrated to MCP SDK v2 with modern `2026-07-28` negotiation and legacy stdio compatibility.

@@ -1,18 +1,19 @@
 # MCP BCRA — Project Context
 
-Servidor MCP TypeScript/Bun de solo lectura para APIs públicas del BCRA. Usa `@modelcontextprotocol/server` v2, Zod 4 y Vitest.
+Read-only TypeScript/Bun MCP server for public BCRA APIs. It uses `@modelcontextprotocol/server` v2, Zod 4, and Vitest.
 
-## Arquitectura obligatoria
+## Required architecture
 
-- Cada dominio tiene `schemas.ts`, `api.ts` y `tools.ts`.
-- `api.ts` no conoce MCP; consume `BcraHttpClient` y valida la respuesta upstream.
-- `tools.ts` usa `registerMcpTool`, declara input/output schemas y propaga `context.mcpReq.signal`.
-- `src/shared/http` es la única implementación HTTP.
-- `src/tools/registerAllTools.ts` crea un cliente compartido y registra todos los dominios.
-- No usar `any`, desactivar TLS ni aceptar URLs arbitrarias.
-- Todo error de integración usa `DomainApiError`.
+- Each domain has `schemas.ts`, `api.ts`, and `tools.ts`.
+- `api.ts` does not know about MCP. It uses `BcraHttpClient` and validates the upstream response.
+- `tools.ts` uses `registerMcpTool`, declares input and output schemas, and forwards `context.mcpReq.signal`.
+- `src/shared/http` is the only BCRA HTTP implementation.
+- `src/tools/registerAllTools.ts` creates one shared client and registers every domain.
+- `src/http` is optional Streamable HTTP with OIDC bearer validation. stdio does not import it.
+- Do not use `any`, disable TLS, or accept arbitrary URLs.
+- Every integration error uses `DomainApiError`.
 
-## Comandos
+## Commands
 
 ```bash
 bun install
@@ -24,20 +25,22 @@ bun run test:e2e
 bun run pack:check
 ```
 
-Antes de release use `bun run release:check`. El smoke real, público y sin identificadores personales es `bun run smoke:live`.
+Before a release, use `bun run release:check`. The live public smoke, with no personal identifiers, is `bun run smoke:live`.
 
 ## MCP v2
 
-- Importar servidor desde `@modelcontextprotocol/server`.
-- El binario stdio debe usar `serveStdio(() => createServer())`, no conexión directa, para negociar MCP 2026 y legado.
-- Toda tool debe tener título, descripción, input schema, output schema y annotations.
-- Éxitos: texto compatible y `structuredContent`.
-- Fallas funcionales: `isError: true`, sin detalles sensibles.
-- Cancelación: `context.mcpReq.signal` hasta el cliente HTTP.
+- Import the server from `@modelcontextprotocol/server`.
+- The stdio binary must use `serveStdio(() => createServer())`, not a direct connection, so it can negotiate MCP 2026 and the legacy era.
+- Every tool needs a title, description, input schema, output schema, and annotations.
+- Success: compatible text plus `structuredContent`.
+- Functional failures: `isError: true`, with no sensitive details.
+- Cancellation: `context.mcpReq.signal` down to the HTTP client.
+- HTTP mode is opt-in via `MCP_TRANSPORT=http` and must refuse to listen without OIDC settings unless `MCP_AUTH_INSECURE_DEV=true`.
 
-## Testing mínimo
+## Minimum tests
 
-- HTTP: URL/origen, redirects, HTTP error, timeout, cancelación, JSON inválido, body vacío/grande, retry, rate/concurrencia/cola.
-- API: path/query y schema upstream.
-- MCP: negociación real, lista de tools, metadatos, respuesta estructurada, error e input inválido.
-- stdio: MCP moderno y legado contra `dist/index.js`.
+- HTTP client: URL and origin, redirects, HTTP error, timeout, cancellation, invalid JSON, empty or large body, retry, rate, concurrency, and queue.
+- API: path, query, and upstream schema.
+- MCP: real negotiation, tool list, metadata, structured response, error, and invalid input.
+- stdio: modern and legacy MCP against `dist/index.js`.
+- Auth: local JWKS cases for a valid token, expiry, audience, issuer, and missing scope.

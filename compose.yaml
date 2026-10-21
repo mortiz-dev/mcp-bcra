@@ -1,0 +1,19 @@
+# Example only. Replace the placeholder issuer, audience, and host.
+# Terminate TLS in front of this service. The process speaks HTTP on the private network.
+# Do not put a client secret here. The server only validates bearer tokens.
+
+services:
+  mcp-bcra:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8080"
+      MCP_RESOURCE_URL: https://mcp.example.com/mcp
+      MCP_AUTH_ISSUER: https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0
+      MCP_AUTH_AUDIENCE: api://11111111-1111-1111-1111-111111111111
+      MCP_AUTH_REQUIRED_SCOPES: mcp.access
+      MCP_ALLOWED_HOSTS: mcp.example.com
+    restart: unless-stopped

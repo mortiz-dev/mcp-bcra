@@ -1,17 +1,19 @@
 # MCP BCRA
 
-Servidor Model Context Protocol de solo lectura para consultar APIs públicas del Banco Central de la República Argentina (BCRA).
+Read-only Model Context Protocol server for the public APIs of the Banco Central de la República Argentina (BCRA).
 
-La versión 2 implementa MCP `2026-07-28` mediante `@modelcontextprotocol/server` v2 y mantiene compatibilidad stdio con clientes MCP de la era 2025. Todas las tools publican schemas de entrada y salida, metadatos de seguridad y respuestas estructuradas.
+Version 2 implements MCP `2026-07-28` with `@modelcontextprotocol/server` v2 and keeps stdio compatibility with MCP clients from the 2025 era. Every tool publishes input and output schemas, security metadata, and structured responses.
 
-## Requisitos
+Local stdio is the default and does not use authentication. An optional Streamable HTTP mode adds an OAuth 2.1 resource server for a shared deployment. See [HTTP server mode](#http-server-mode) and [docs/http-server.md](docs/http-server.md).
 
-- Node.js 22 o 24 LTS.
-- Bun 1.3.11 para desarrollo y gestión del lockfile.
+## Requirements
 
-## Instalación y ejecución
+- Node.js 22 or 24 LTS.
+- Bun 1.3.11 for development and the lockfile.
 
-Desde el checkout:
+## Install and run
+
+From a checkout:
 
 ```bash
 bun install
@@ -19,13 +21,13 @@ bun run build
 node dist/index.js
 ```
 
-Una vez publicado en npm, el binario se podrá ejecutar con:
+Once the package is on npm:
 
 ```bash
 npx mcp-bcra
 ```
 
-El servidor usa stdio. `stdout` queda reservado para el protocolo MCP; los errores operativos se escriben en `stderr`.
+The default transport is stdio. `stdout` is reserved for MCP. Operational errors go to `stderr`. No `MCP_*` variable is required, and setting them does not change stdio.
 
 ### Claude Desktop
 
@@ -34,37 +36,37 @@ El servidor usa stdio. `stdout` queda reservado para el protocolo MCP; los error
   "mcpServers": {
     "bcra": {
       "command": "node",
-      "args": ["/RUTA/ABSOLUTA/mcp-bcra/dist/index.js"]
+      "args": ["/ABSOLUTE/PATH/mcp-bcra/dist/index.js"]
     }
   }
 }
 ```
 
-También puede usarse `bun` como comando. Siempre use rutas absolutas en clientes de escritorio.
+`bun` works as the command as well. Desktop clients need absolute paths.
 
-## Herramientas
+## Tools
 
-Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva de traducciones depende de cada API del BCRA.
+Every tool accepts an optional `idioma` (`es-AR` or `en-US`). Whether a translation is available depends on each BCRA API.
 
-| Tool | Parámetros específicos |
+| Tool | Specific parameters |
 |---|---|
-| `get-bcra-client-central-deudores` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
-| `get-bcra-client-central-deudores-historical` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
-| `get-bcra-client-cheques-rechazados` | `clientId`: CUIT, CUIL o CDI de 11 dígitos |
-| `get-bcra-entities` | Sin parámetros específicos |
-| `get-bcra-cheque-denunciado` | `codigoEntidad`, `numeroCheque` numérico de hasta 19 caracteres |
-| `get-bcra-variables` | `idVariable`, `categoria`, `tipoSerie`, `periodicidad`, `unidadExpresion`, `limit`, `offset` opcionales |
-| `get-bcra-var-hist` | `idVariable`; `desde`, `hasta`, `limit` (máximo 3000), `offset` opcionales |
-| `get-bcra-metodologia` | `idVariable`, `limit`, `offset` opcionales |
-| `get-bcra-series-excel-catalog` | `idVariable`, `buscar`, `limit` (1–100, default 50), `offset` opcionales |
-| `get-bcra-fx-currencies` | Sin parámetros específicos |
-| `get-bcra-fx-quotes` | `fecha` opcional |
-| `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
-| `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
+| `get-bcra-client-central-deudores` | `clientId`: 11-digit CUIT, CUIL, or CDI |
+| `get-bcra-client-central-deudores-historical` | `clientId`: 11-digit CUIT, CUIL, or CDI |
+| `get-bcra-client-cheques-rechazados` | `clientId`: 11-digit CUIT, CUIL, or CDI |
+| `get-bcra-entities` | No specific parameters |
+| `get-bcra-cheque-denunciado` | `codigoEntidad`, numeric `numeroCheque` of up to 19 characters |
+| `get-bcra-variables` | Optional `idVariable`, `categoria`, `tipoSerie`, `periodicidad`, `unidadExpresion`, `limit`, `offset` |
+| `get-bcra-var-hist` | `idVariable`; optional `desde`, `hasta`, `limit` (maximum 3000), `offset` |
+| `get-bcra-metodologia` | Optional `idVariable`, `limit`, `offset` |
+| `get-bcra-series-excel-catalog` | Optional `idVariable`, `buscar`, `limit` (1–100, default 50), `offset` |
+| `get-bcra-fx-currencies` | No specific parameters |
+| `get-bcra-fx-quotes` | Optional `fecha` |
+| `get-bcra-fx-quote-by-currency` | `codMoneda`; optional `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` |
+| `get-bcra-transparencia-producto` | `producto`; optional `codigoEntidad` |
 
-Las fechas usan `YYYY-MM-DD`, deben existir en el calendario y el final no puede ser anterior al inicio. Los números son JSON numbers estrictos: no se convierten strings ni booleanos.
+Dates use `YYYY-MM-DD`, must be real calendar dates, and the end cannot be before the start. Numbers are strict JSON numbers: strings and booleans are not coerced.
 
-Productos válidos de Transparencia:
+Valid Transparencia products:
 
 - `cajasAhorros`
 - `paquetes`
@@ -74,17 +76,17 @@ Productos válidos de Transparencia:
 - `prestamosPersonales`
 - `tarjetas`
 
-Si `codigoEntidad` se omite, Transparencia consulta todas las entidades disponibles.
+If `codigoEntidad` is omitted, Transparencia queries every available entity.
 
-### Catálogo Excel de series
+### Excel series catalog
 
-`get-bcra-series-excel-catalog` lee el [listado XLSX oficial de variables de Series.xlsm](https://www.bcra.gob.ar/datos-monetarios-diarios/). Devuelve el identificador de API, descripción, tipo de serie, periodicidad, unidad y moneda, además de `sourceUrl`, `sourcePage`, `format`, `total` y `results`. `buscar` filtra la descripción sin distinguir mayúsculas; `idVariable` selecciona un identificador exacto. La paginación se aplica después de filtrar. Esta planilla es un **catálogo**, no contiene las observaciones históricas: para obtener valores use `get-bcra-var-hist` con el `idVariable` encontrado.
+`get-bcra-series-excel-catalog` reads the [official XLSX variable list, Series.xlsm](https://www.bcra.gob.ar/datos-monetarios-diarios/). It returns the API identifier, description, series type, periodicity, unit, and currency, plus `sourceUrl`, `sourcePage`, `format`, `total`, and `results`. `buscar` filters the description without case sensitivity. `idVariable` selects an exact identifier. Pagination is applied after filtering. The spreadsheet is a **catalog**. It does not contain historical observations. Use `get-bcra-var-hist` with the `idVariable` you found.
 
-El archivo se descarga en cada llamada desde una ruta fija de `www.bcra.gob.ar`. Se limita el tamaño de la respuesta y se rechaza una estructura de columnas inesperada con `UPSTREAM_SCHEMA_MISMATCH`. La planilla está en español; `idioma` solo se envía como preferencia HTTP y no traduce sus celdas. Esta integración acepta XLSX; los archivos históricos `.xls` y los libros `.xlsm` publicados por el BCRA requieren adaptadores y validaciones por documento antes de exponer sus datos.
+The file is downloaded on each call from a fixed path on `www.bcra.gob.ar`. The response size is limited, and an unexpected column layout fails with `UPSTREAM_SCHEMA_MISMATCH`. The sheet is in Spanish. `idioma` is only an HTTP preference and does not translate cells. This integration accepts XLSX. Historical `.xls` files and `.xlsm` workbooks published by the BCRA need a per-document adapter and validation before their data can be exposed.
 
-## Contrato de respuesta
+## Response contract
 
-Un resultado exitoso mantiene texto JSON para clientes anteriores y agrega `structuredContent` validado:
+A success keeps a JSON text block for older clients and adds validated `structuredContent`:
 
 ```json
 {
@@ -96,57 +98,111 @@ Un resultado exitoso mantiene texto JSON para clientes anteriores y agrega `stru
 }
 ```
 
-Una falla funcional se devuelve con `isError: true` y un payload acotado. Los detalles internos de la respuesta upstream no se exponen al cliente MCP.
+A functional failure is returned with `isError: true` and a bounded payload. Internal upstream response details are not sent to the MCP client.
 
-## Seguridad y resiliencia
+## Security and resilience
 
-El único cliente HTTP compartido aplica:
+The single shared HTTP client applies:
 
-- HTTPS obligatorio y orígenes fijos `https://api.bcra.gob.ar` para JSON y `https://www.bcra.gob.ar` para el catálogo XLSX.
-- Rechazo de URLs absolutas, paths ambiguos, fragmentos y redirects inesperados.
-- Deadline total configurable, incluyendo cola, fetch, body y backoff.
-- Cancelación MCP propagada hasta `fetch` y diferenciada de timeout.
-- Respuesta exitosa limitada a 2 MiB por defecto y cuerpo de error limitado a 32 KiB.
-- Máximo de 4 requests concurrentes, 5 inicios por segundo y cola FIFO de 32.
-- Hasta 2 reintentos adicionales solo para GET con HTTP 429, 502, 503 o 504; respeta `Retry-After` y el deadline.
-- Validación Zod tanto de inputs como de la envoltura upstream `{status, metadata?, results}`.
-- Tools anotadas `readOnlyHint: true` y `openWorldHint: true` porque consultan un servicio externo.
+- HTTPS only, and fixed origins `https://api.bcra.gob.ar` for JSON and `https://www.bcra.gob.ar` for the XLSX catalog.
+- Rejection of absolute URLs, ambiguous paths, fragments, and unexpected redirects.
+- A configurable total deadline, including queue, fetch, body, and backoff.
+- MCP cancellation propagated to `fetch`, distinct from a timeout.
+- Successful responses limited to 2 MiB by default, and error bodies limited to 32 KiB.
+- At most 4 concurrent requests, 5 starts per second, and a FIFO queue of 32.
+- Up to 2 extra retries only for GET with HTTP 429, 502, 503, or 504. `Retry-After` and the deadline are honored.
+- Zod validation of inputs and of the upstream envelope `{status, metadata?, results}`.
+- Tools annotated `readOnlyHint: true` and `openWorldHint: true` because they call an external service.
 
-Variables operativas:
+Operational variables:
 
-| Variable | Default | Rango aceptado |
+| Variable | Default | Accepted range |
 |---|---:|---:|
 | `BCRA_HTTP_TIMEOUT_MS` | 15000 | 100–60000 |
 | `BCRA_HTTP_MAX_RESPONSE_BYTES` | 2097152 | 65536–10485760 |
 | `BCRA_HTTP_MAX_CONCURRENCY` | 4 | 1–16 |
 | `BCRA_HTTP_RATE_LIMIT_PER_SECOND` | 5 | 1–20 |
 
-Los valores fuera de rango se ignoran y se usa el default seguro. Los límites son por proceso; varias instancias pueden compartir la misma IP y deben coordinar capacidad externamente.
+Values outside the range are ignored and the safe default is used. Limits are per process. Several instances can share one egress IP and must coordinate capacity outside this process.
 
-Este proyecto expone únicamente stdio local. Si se agrega un transporte HTTP remoto, debe incorporarse autenticación/autorización, validación de origen/host, TLS en el borde y límites distribuidos antes de exponerlo.
+## HTTP server mode
 
-## Privacidad y uso responsable
+Set `MCP_TRANSPORT=http` to serve MCP on Streamable HTTP. The process is then an OAuth 2.1 resource server: it validates bearer JWTs against an OIDC issuer and publishes [Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728) at `/.well-known/oauth-protected-resource`. That document's `authorization_servers` value is the configured issuer. Failed authentication returns `401` or `403` with a `WWW-Authenticate: Bearer` challenge that includes `resource_metadata`.
 
-Las consultas por CUIT/CUIL/CDI pueden involucrar información financiera personal. El operador es responsable de contar con base legal, autorización y controles de acceso adecuados. No registre identificadores, respuestas personales ni argumentos completos de tools.
+The server does not issue tokens and does not need a client secret. It only validates them. HTTP mode exits on startup unless `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE`, and `MCP_RESOURCE_URL` are all set. `MCP_AUTH_INSECURE_DEV=true` is the explicit local exception and must not be reachable from a network.
 
-Los datos provienen de APIs públicas del [BCRA](https://www.bcra.gob.ar/BCRAyVos/catalogo-de-APIs-banco-central.asp), pueden sufrir demoras, cambios o indisponibilidad y deben contrastarse con la fuente oficial. Este servidor no brinda asesoramiento financiero, crediticio ni legal, y no debe tomar decisiones reguladas o adversas de manera automática.
+| Variable | Role |
+|---|---|
+| `MCP_TRANSPORT` | `stdio` (default) or `http` |
+| `MCP_HOST` / `MCP_PORT` | Bind address and port. Defaults: `127.0.0.1` and `8080` |
+| `MCP_RESOURCE_URL` | Public MCP URL. Its path is the local path, usually `https://mcp.example.com/mcp` |
+| `MCP_AUTH_ISSUER` | OIDC issuer. Must match token `iss` exactly |
+| `MCP_AUTH_AUDIENCE` | Expected `aud`. Comma-separated to accept more than one |
+| `MCP_AUTH_REQUIRED_SCOPES` | Optional scopes (`scope` or Entra `scp`) |
+| `MCP_AUTH_REQUIRED_ROLES` | Optional `roles` claim values |
+| `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | Extra hostnames for `Host` and browser `Origin` checks |
+| `MCP_AUTH_INSECURE_DEV` | `true` disables authentication. Cannot be combined with OIDC variables |
 
-## Migración a 2.0.0
+Terminate TLS at a reverse proxy, forward the original `Host`, and do not log `Authorization`. `GET /healthz` is unauthenticated and returns `{"status":"ok"}`. Step-by-step identity-provider setup, including the container, is in [docs/http-server.md](docs/http-server.md).
 
-Cambios incompatibles:
+### Microsoft Entra ID
 
-1. Requiere Node.js 22 o superior y usa los paquetes MCP v2 separados.
-2. Transparencia elimina `cuentasCorrientes` y `cajasSeguridad`, corrige las rutas oficiales, agrega `plazosFijos` y hace `codigoEntidad` opcional.
-3. `clientId` exige exactamente 11 dígitos; los campos numéricos ya no se convierten implícitamente.
-4. Las fechas ahora se validan como fechas reales y los rangos invertidos fallan.
-5. Los límites y offsets están acotados.
-6. Los éxitos incorporan `structuredContent`; los errores se marcan con `isError: true`.
-7. Se agrega `get-bcra-metodologia` y filtros completos de Estadísticas v4.
-8. El entrypoint importable pasa a `dist/server.js`; `dist/index.js` queda como binario stdio.
+Use two app registrations in the company tenant.
 
-Un cliente que solo consumía el bloque de texto puede seguir parseando `{ok,data}`. Los clientes modernos deben preferir `structuredContent`.
+1. **API registration (this server).** Expose an API. Set the Application ID URI to `api://<api-application-client-id>` and add a scope such as `mcp.access`. In the manifest, set `accessTokenAcceptedVersion` to `2` so tokens are v2. Point the server at issuer `https://login.microsoftonline.com/<tenant-id>/v2.0` and set `MCP_AUTH_AUDIENCE` to that client id or to the Application ID URI, matching the token `aud` claim. v1 tokens (`https://sts.windows.net/<tenant-id>/`) do not match the v2 issuer.
+2. **MCP client registration** (or the client's own registration). Grant it permission to request that scope. The client keeps any secret or certificate it needs. The MCP server never receives a client secret. It only validates tokens.
 
-## Desarrollo y release
+Delegated Entra tokens carry the scope in `scp`. Set `MCP_AUTH_REQUIRED_SCOPES=mcp.access`. Application-only tokens usually carry app roles in `roles` instead. Use `MCP_AUTH_REQUIRED_ROLES` for that flow.
+
+### Okta and Auth0
+
+Okta: set `MCP_AUTH_ISSUER` to the authorization-server issuer (`https://<org>.okta.com/oauth2/default` or a custom authorization server) and `MCP_AUTH_AUDIENCE` to that server's audience. Add a custom scope and require it. The server does not need an Okta client secret.
+
+Auth0: set `MCP_AUTH_ISSUER` to `https://<tenant>.auth0.com/` with the trailing slash Auth0 puts on `iss`. Set `MCP_AUTH_AUDIENCE` to the API identifier and require one of its permissions. The server does not need an Auth0 client secret.
+
+### Container
+
+The repository `Dockerfile` builds a Node 22 image. It does not enable insecure mode.
+
+```bash
+docker build -t mcp-bcra .
+docker run --rm -p 8080:8080 \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_RESOURCE_URL=https://mcp.example.com/mcp \
+  -e MCP_AUTH_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0 \
+  -e MCP_AUTH_AUDIENCE=api://<api-application-client-id> \
+  -e MCP_AUTH_REQUIRED_SCOPES=mcp.access \
+  -e MCP_ALLOWED_HOSTS=mcp.example.com \
+  mcp-bcra
+```
+
+`compose.yaml` is a minimal Compose file with the same variables. Replace the placeholder issuer, audience, and host.
+
+## Privacy and responsible use
+
+Queries by CUIT, CUIL, or CDI can involve personal financial information. The operator is responsible for a lawful basis, authorization, and access control. Do not log identifiers, personal responses, or full tool arguments.
+
+Data comes from the public [BCRA API catalog](https://www.bcra.gob.ar/BCRAyVos/catalogo-de-APIs-banco-central.asp). It can be delayed, changed, or unavailable, and it should be checked against the official source. This server does not give financial, credit, or legal advice, and it must not make regulated or adverse decisions automatically.
+
+## Migration to 2.0.0
+
+Breaking changes:
+
+1. Requires Node.js 22 or newer and the split MCP v2 packages.
+2. Transparencia removes `cuentasCorrientes` and `cajasSeguridad`, corrects the official routes, adds `plazosFijos`, and makes `codigoEntidad` optional.
+3. `clientId` must be exactly 11 digits. Numeric fields are no longer coerced.
+4. Dates are validated as real dates, and inverted ranges fail.
+5. Limits and offsets are bounded.
+6. Successes include `structuredContent`. Errors are marked `isError: true`.
+7. Adds `get-bcra-metodologia` and the full Estadísticas v4 filters.
+8. The importable entrypoint is `dist/server.js`. `dist/index.js` is the stdio binary.
+
+A client that only parsed the text block can keep parsing `{ok,data}`. Newer clients should prefer `structuredContent`.
+
+HTTP mode does not change tool contracts or the stdio entrypoint. Leave `MCP_TRANSPORT` unset to keep the previous local behavior.
+
+## Development and release
 
 ```bash
 bun run lint
@@ -160,21 +216,22 @@ bun run audit
 bun run release:check
 ```
 
-`bun run smoke:live` realiza consultas públicas y no personales contra el BCRA, incluidos todos los productos de Transparencia. No forma parte del CI determinista.
+`bun run smoke:live` runs public, non-personal queries against the BCRA, including every Transparencia product. It is not part of deterministic CI.
 
-Próximas incorporaciones recomendadas: leer series que el BCRA publica solo en XLS, empezando por los [préstamos UVA diarios y mensuales](https://www.bcra.gob.ar/prestamos-y-otros-activos-de-las-entidades-financieras/), con esquema explícito, unidad, período y fuente por observación. También conviene comparar periódicamente las series del catálogo XLSX con Estadísticas v4 para detectar IDs discontinuados o cambios de metadatos.
+Recommended later work: read series that the BCRA publishes only as XLS, starting with the [daily and monthly UVA loans](https://www.bcra.gob.ar/prestamos-y-otros-activos-de-las-entidades-financieras/), with an explicit schema, unit, period, and source per observation. Also compare the XLSX catalog with Estadísticas v4 periodically to detect discontinued ids or metadata changes.
 
-Arquitectura:
+Architecture:
 
-- Cada dominio contiene `schemas.ts`, `api.ts` y `tools.ts`.
-- `api.ts` solo conoce `BcraHttpClient` y valida la respuesta upstream.
-- `tools.ts` declara contratos MCP, pasa cancelación y transforma resultados.
-- `src/shared/http` centraliza origen, rate, retry, timeout, tamaños y errores.
-- `src/shared/mcp` centraliza registro, anotaciones y respuestas.
-- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 13 tools.
+- Each domain has `schemas.ts`, `api.ts`, and `tools.ts`.
+- `api.ts` only knows `BcraHttpClient` and validates the upstream response.
+- `tools.ts` declares MCP contracts, forwards cancellation, and maps results.
+- `src/shared/http` centralizes origin, rate, retry, timeout, sizes, and errors.
+- `src/shared/mcp` centralizes registration, annotations, and responses.
+- `src/tools/registerAllTools.ts` creates one shared client and registers the 13 tools.
+- `src/http` is the optional Streamable HTTP resource server. stdio does not load it.
 
-Para agregar una tool, actualice schemas, API, registro, pruebas de dominio/protocolo y este README si cambia el contrato.
+To add a tool, update the schemas, API, registration, domain and protocol tests, and this README when the contract changes.
 
-## Migración: catálogo Excel
+## Migration: Excel catalog
 
-Se agrega `get-bcra-series-excel-catalog` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluir la nueva tool. El resultado tiene contrato propio de catálogo y no la envoltura `{status, results}` de las APIs JSON. Su `idVariable` puede usarse en `get-bcra-var-hist`. Quien inyecte un `BcraHttpClient` propio debe implementar `getDocument` para usar esta tool; `getJson` sigue siendo suficiente para las anteriores.
+`get-bcra-series-excel-catalog` is added without changing the existing tools. Clients that show a fixed list should include the new tool. Its result uses a catalog contract, not the `{status, results}` envelope of the JSON APIs. Its `idVariable` can be passed to `get-bcra-var-hist`. A custom `BcraHttpClient` must implement `getDocument` to use this tool. `getJson` is still enough for the earlier tools.

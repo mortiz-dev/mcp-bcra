@@ -1,40 +1,43 @@
 # AGENTS.md
 
-Guia para agentes y colaboradores en este repositorio.
+Guide for agents and contributors in this repository.
 
-## Objetivo
+## Goal
 
-Mantener un servidor MCP del BCRA modular, seguro y facil de extender.
+Keep the BCRA MCP server modular, safe, and easy to extend.
 
-## Flujo estandar
+## Standard flow
 
 1. `bun install`
 2. `bun run build`
 3. `bun run test`
-4. Cambios pequenos + validacion continua
+4. Small changes and continuous validation
 
-## Convenciones de arquitectura
+## Architecture
 
-- Cada dominio debe tener `schemas.ts`, `api.ts` y `tools.ts`.
-- `api.ts` nunca conoce MCP; solo consume `BcraHttpClient`.
-- `tools.ts` valida input y transforma salida a formato MCP.
-- El registro central vive en `src/tools/registerAllTools.ts`.
-- Toda nueva tool debe pasar por capa shared (errores, respuesta y validacion comun).
+- Each domain has `schemas.ts`, `api.ts`, and `tools.ts`.
+- `api.ts` does not know about MCP. It only uses `BcraHttpClient`.
+- `tools.ts` validates input and maps output to MCP.
+- The central registry is `src/tools/registerAllTools.ts`.
+- Every new tool goes through the shared layer (errors, response, and common validation).
+- stdio is the default process in `src/index.ts`. Optional Streamable HTTP and OIDC resource-server auth live in `src/http` and must not change stdio behavior.
+- Do not put secrets in source. HTTP auth is environment-only.
 
-## Reglas tecnicas
+## Technical rules
 
-- No deshabilitar TLS.
-- No usar `any` en codigo de dominio/infraestructura.
-- No duplicar logica HTTP entre dominios.
-- Mantener errores tipados con `DomainApiError`.
+- Do not disable TLS.
+- Do not use `any` in domain or infrastructure code.
+- Do not duplicate HTTP logic across domains.
+- Keep integration errors typed with `DomainApiError`.
 
-## Testing minimo
+## Minimum tests
 
-- Capa shared HTTP: success + error HTTP + timeout + JSON invalido.
-- Capa dominio API: construccion de path/query.
-- Capa dominio tools: mapping success/error a respuesta MCP.
-- Registro global: verificacion de tools registradas.
+- Shared HTTP layer: success, HTTP error, timeout, and invalid JSON.
+- Domain API layer: path and query construction.
+- Domain tools layer: success and error mapped to an MCP response.
+- Global registry: the registered tools are present.
+- HTTP mode: JWT validation against a local JWKS, and stdio remains the default.
 
-## Documentacion
+## Documentation
 
-Si cambian parametros o contratos de una tool, actualizar `README.md` con seccion de migracion.
+If a tool's parameters or contract change, update `README.md` with a migration section. HTTP auth changes belong in `README.md` and `docs/http-server.md`.
