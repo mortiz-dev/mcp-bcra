@@ -31,6 +31,35 @@ const run = (command: string, args: string[], cwd: string) => {
   return result.stdout;
 };
 
+const listToolNames = async (entry: string, cwd: string): Promise<string[]> => {
+  const transport = new StdioClientTransport({
+    command: "node",
+    args: [entry],
+    cwd,
+    stderr: "pipe",
+  });
+  let stderr = "";
+  transport.stderr?.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const client = new Client(
+    { name: "package-smoke", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  let names: string[];
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    names = tools.map((tool) => tool.name).sort();
+  } finally {
+    await client.close();
+  }
+  if (stderr !== "") {
+    throw new Error(`Server ${entry} wrote to stderr: ${stderr}`);
+  }
+  return names;
+};
+
 try {
   const packOutput = run(
     "npm",
@@ -61,36 +90,24 @@ try {
 
   const executable = join(consumer, "node_modules", ".bin", "mcp-bcra");
   accessSync(executable, constants.X_OK);
-  const transport = new StdioClientTransport({
-    command: "node",
-    args: [join(consumer, "node_modules", "mcp-bcra", "dist", "index.js")],
-    cwd: consumer,
-    stderr: "pipe",
-  });
-  let stderr = "";
-  transport.stderr?.on("data", (chunk) => {
-    stderr += String(chunk);
-  });
-  const client = new Client(
-    { name: "package-smoke", version: "1.0.0" },
-    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+
+  // The expected catalog comes from the checkout's own build, so adding a tool
+  // does not require editing this script.
+  const expected = await listToolNames(join(root, "dist", "index.js"), root);
+  const packaged = await listToolNames(
+    join(consumer, "node_modules", "mcp-bcra", "dist", "index.js"),
+    consumer,
   );
-  try {
-    await client.connect(transport);
-    const { tools } = await client.listTools();
-    if (
-      tools.length !== 12 ||
-      !tools.some((tool) => tool.name === "get-bcra-metodologia")
-    ) {
-      throw new Error(`Unexpected packaged tool catalog (${tools.length} tools)`);
-    }
-  } finally {
-    await client.close();
+  if (
+    expected.length === 0 ||
+    packaged.join("\n") !== expected.join("\n") ||
+    !packaged.includes("get-bcra-metodologia")
+  ) {
+    throw new Error(
+      `Unexpected packaged tool catalog (${packaged.length} tools, expected ${expected.length})`,
+    );
   }
-  if (stderr !== "") {
-    throw new Error(`Packaged server wrote to stderr: ${stderr}`);
-  }
-  console.log("Packaged binary smoke OK: modern MCP, 12 tools");
+  console.log(`Packaged binary smoke OK: modern MCP, ${packaged.length} tools`);
 } finally {
   rmSync(workspace, { recursive: true, force: true });
 }
