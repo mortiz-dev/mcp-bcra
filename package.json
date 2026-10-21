@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "docs/http-server.md",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",
@@ -66,6 +67,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
+    "jose": "^6.2.13",
     "read-excel-file": "^9.3.12",
     "zod": "^4.6.7"
   },

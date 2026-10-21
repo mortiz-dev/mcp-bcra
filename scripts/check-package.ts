@@ -51,6 +51,7 @@ const required = [
   "dist/index.js",
   "dist/server.js",
   "dist/server.d.ts",
+  "docs/http-server.md",
   ...Object.values(packageJson.bin),
 ].map((path) => path.replace(/^\.\//, ""));
 for (const path of required) {

@@ -1,11 +1,12 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
+  "configVersion": 1,
   "workspaces": {
     "": {
       "name": "mcp-bcra",
       "dependencies": {
         "@modelcontextprotocol/server": "^2.3.1",
+        "jose": "^6.2.13",
         "read-excel-file": "^9.3.12",
         "zod": "^4.6.7",
       },
