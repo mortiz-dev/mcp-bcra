@@ -38,7 +38,10 @@ const readBody = async (req: IncomingMessage): Promise<Uint8Array | undefined> =
   return new Uint8Array(Buffer.concat(chunks));
 };
 
-export const toWebRequest = async (req: IncomingMessage): Promise<Request> => {
+export const toWebRequest = async (
+  req: IncomingMessage,
+  signal?: AbortSignal,
+): Promise<Request> => {
   const hostHeader = req.headers.host;
   const host = hostHeader && hostHeader.length > 0 ? hostHeader : "invalid.local";
   let url: URL;
@@ -61,7 +64,7 @@ export const toWebRequest = async (req: IncomingMessage): Promise<Request> => {
   const bodyless = method === "GET" || method === "HEAD";
   const bytes = bodyless ? undefined : await readBody(req);
   const body = bytes ? new Blob([Buffer.from(bytes)]) : undefined;
-  return new Request(url, { method, headers, body });
+  return new Request(url, { method, headers, body, signal });
 };
 
 const writeWebResponse = async (
@@ -120,8 +123,15 @@ export const listenHttp = (
 ): Promise<ListeningServer> => {
   const server = createServer((req, res) => {
     void (async () => {
+      const abort = new AbortController();
+      const abortIfDisconnected = () => {
+        if (!res.writableEnded) abort.abort();
+      };
+      res.on("close", abortIfDisconnected);
+      req.on("aborted", abortIfDisconnected);
+      if (req.aborted || res.destroyed) abortIfDisconnected();
       try {
-        const request = await toWebRequest(req);
+        const request = await toWebRequest(req, abort.signal);
         const response = await app.fetch(request);
         await writeWebResponse(res, response);
       } catch (error) {

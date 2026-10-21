@@ -47,10 +47,18 @@ const allowedOrigin = (
   }
 };
 
+// Not CORS-safelisted. Browser clients cannot read them unless they are exposed.
+const CORS_EXPOSED_HEADERS = [
+  "WWW-Authenticate",
+  "Mcp-Session-Id",
+  "MCP-Protocol-Version",
+].join(", ");
+
 const withCors = (response: Response, origin: string | undefined): Response => {
   if (!origin) return response;
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Expose-Headers", CORS_EXPOSED_HEADERS);
   headers.set("Vary", "Origin");
   return new Response(response.body, {
     status: response.status,
@@ -146,12 +154,15 @@ export const createHttpApp = (options: CreateHttpAppOptions): HttpApp => {
       }
 
       if (url.searchParams.has("access_token") || url.searchParams.has("token")) {
-        return bearerAuthChallengeResponse(
-          new OAuthError(
-            OAuthErrorCode.InvalidToken,
-            "Access tokens must be sent in the Authorization header",
+        return withCors(
+          bearerAuthChallengeResponse(
+            new OAuthError(
+              OAuthErrorCode.InvalidToken,
+              "Access tokens must be sent in the Authorization header",
+            ),
+            challengeOptions,
           ),
-          challengeOptions,
+          origin,
         );
       }
 

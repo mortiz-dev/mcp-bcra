@@ -1,4 +1,4 @@
-import type { IncomingMessage } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createLocalJWKSet, exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
@@ -309,6 +309,145 @@ describe("HTTP resource server", () => {
     closers.push(() => listening.close());
     const health = await fetch(`http://127.0.0.1:${listening.port}/healthz`);
     expect(health.status).toBe(200);
+  });
+
+  it("exposes auth and MCP headers on allowed cross-origin challenges", async () => {
+    const { verifier, sign } = await signer();
+    const app = createHttpApp({ settings: settings(), verifier });
+    closers.push(() => app.close());
+
+    const unauthorized = await app.fetch(
+      request("/mcp", { method: "POST", origin: "http://127.0.0.1", body: "{}" }),
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("www-authenticate")).toContain("invalid_token");
+    const exposed = unauthorized.headers.get("access-control-expose-headers") ?? "";
+    expect(exposed).toMatch(/WWW-Authenticate/i);
+    expect(exposed).toMatch(/Mcp-Session-Id/i);
+    expect(exposed).toMatch(/MCP-Protocol-Version/i);
+    expect(unauthorized.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1",
+    );
+
+    const token = await sign({ scope: "other" });
+    const forbidden = await app.fetch(
+      request("/mcp", {
+        method: "POST",
+        origin: "http://localhost",
+        headers: { authorization: `Bearer ${token}` },
+        body: "{}",
+      }),
+    );
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.headers.get("access-control-expose-headers")).toMatch(
+      /WWW-Authenticate/i,
+    );
+
+    const query = await app.fetch(
+      request("/mcp?token=abc", {
+        method: "POST",
+        origin: "http://127.0.0.1",
+        body: "{}",
+      }),
+    );
+    expect(query.status).toBe(401);
+    expect(query.headers.get("access-control-expose-headers")).toMatch(
+      /WWW-Authenticate/i,
+    );
+  });
+
+  it("aborts the request signal when the client disconnects after the body is read", async () => {
+    let signal: AbortSignal | undefined;
+    let markSeen: () => void = () => undefined;
+    const seen = new Promise<void>((resolve) => {
+      markSeen = resolve;
+    });
+    const listening = await listenHttp(
+      {
+        fetch: (incoming) => {
+          signal = incoming.signal;
+          markSeen();
+          return new Promise<Response>((resolve) => {
+            if (incoming.signal.aborted) {
+              resolve(new Response(null, { status: 499 }));
+              return;
+            }
+            incoming.signal.addEventListener(
+              "abort",
+              () => resolve(new Response(null, { status: 499 })),
+              { once: true },
+            );
+          });
+        },
+        close: async () => undefined,
+      },
+      "127.0.0.1",
+      0,
+    );
+    closers.push(() => listening.close());
+
+    const client = httpRequest({
+      hostname: "127.0.0.1",
+      port: listening.port,
+      path: "/mcp",
+      method: "POST",
+      headers: {
+        host: "127.0.0.1",
+        "content-type": "application/json",
+        "content-length": "2",
+      },
+    });
+    client.on("error", () => undefined);
+    client.end("{}");
+    await seen;
+    expect(signal?.aborted).toBe(false);
+    const aborted = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("request signal stayed open after disconnect"));
+      }, 1000);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
+    client.destroy();
+    await aborted;
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("leaves the request signal open when the response finishes", async () => {
+    let signal: AbortSignal | undefined;
+    const listening = await listenHttp(
+      {
+        fetch: async (incoming) => {
+          signal = incoming.signal;
+          expect(incoming.signal.aborted).toBe(false);
+          return new Response("ok");
+        },
+        close: async () => undefined,
+      },
+      "127.0.0.1",
+      0,
+    );
+    closers.push(() => listening.close());
+
+    const response = await fetch(`http://127.0.0.1:${listening.port}/healthz`);
+    expect(response.status).toBe(200);
+    expect(signal?.aborted).toBe(false);
+
+    const controller = new AbortController();
+    const nodeRequest = Readable.from([]) as IncomingMessage;
+    nodeRequest.method = "GET";
+    nodeRequest.url = "/mcp";
+    nodeRequest.headers = { host: "127.0.0.1" };
+    const forwarded = await toWebRequest(nodeRequest, controller.signal);
+    expect(forwarded.signal.aborted).toBe(false);
+    controller.abort();
+    expect(forwarded.signal.aborted).toBe(true);
   });
 });
 

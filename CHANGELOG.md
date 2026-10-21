@@ -6,6 +6,8 @@
 - HTTP mode refuses to start without issuer, audience, and resource URL unless `MCP_AUTH_INSECURE_DEV=true`.
 - stdio stays the default and does not require authentication.
 - Documented Microsoft Entra ID, Okta, and Auth0 setup, and added a Dockerfile plus a Compose example.
+- Cross-origin HTTP responses expose `WWW-Authenticate`, `Mcp-Session-Id`, and `MCP-Protocol-Version` to browser clients.
+- A client disconnect aborts the in-flight HTTP request so upstream BCRA calls stop.
 
 ## 2.0.0 — 2026-07-31
 
