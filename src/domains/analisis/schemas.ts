@@ -15,7 +15,13 @@ export const rankingProductSchema = z.enum([
 
 export const rankingModeSchema = z.enum(["entidad", "oferta"]);
 export const rankingOrderSchema = z.enum(["asc", "desc"]);
-export const rankingDenominationSchema = z.enum(["pesos", "uva", "dolares", "todas"]);
+export const rankingDenominationSchema = z.enum([
+  "pesos",
+  "uva",
+  "dolares",
+  "euros",
+  "todas",
+]);
 
 const daysBetweenDates = (desde: string, hasta: string): number => {
   const start = Date.parse(`${desde}T00:00:00Z`);
@@ -163,6 +169,8 @@ const rankingRowSchema = z.object({
   contexto: z.record(z.string(), contextValueSchema),
   ofertasEntidad: z.number().int().positive().nullable(),
   denominacionInferida: z.boolean(),
+  posibleInconsistenciaDenominacion: z.boolean(),
+  motivoInconsistenciaDenominacion: z.string().nullable(),
   atipico: z.boolean(),
 });
 

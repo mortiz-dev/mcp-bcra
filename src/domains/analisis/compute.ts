@@ -131,6 +131,8 @@ export type RankedOffer = {
    * the product name. Published text never sets this.
    */
   denominacionInferida?: boolean;
+  posibleInconsistenciaDenominacion?: boolean;
+  motivoInconsistenciaDenominacion?: string | null;
   tasas: Record<string, number>;
   contexto: Record<string, string | number | null>;
   sortKey: number;
@@ -721,14 +723,14 @@ const foldDenomination = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-export type CanonicalDenomination = "pesos" | "uva" | "dolares";
+export type CanonicalDenomination = "pesos" | "uva" | "dolares" | "euros";
 
 /**
  * Maps a published Transparencia `denominacion` to a ranking bucket.
  * Observed on 2026-10-27: "Pesos", "UVA", "Dólares estadounidenses",
- * and "Dolares estadounidenses" (mortgages, no accent). Empty stays
- * unclassified. Other labels (the regime PDF also names Euros and UVIs)
- * stay `otra` and are never folded into pesos.
+ * and "Dolares estadounidenses" (mortgages, no accent). "Euros" is its
+ * own bucket. Empty stays unclassified. Other labels (the regime PDF
+ * also names UVIs) stay `otra` and are never folded into pesos.
  */
 export const canonicalDenomination = (
   raw: unknown,
@@ -746,6 +748,9 @@ export const canonicalDenomination = (
   if (folded === "dolares estadounidenses" || folded === "dolares") {
     return "dolares";
   }
+  if (folded === "euros" || folded === "euro") {
+    return "euros";
+  }
   return "otra";
 };
 
@@ -753,6 +758,7 @@ export type DenominationSplit = {
   pesos: RankedOffer[];
   uva: RankedOffer[];
   dolares: RankedOffer[];
+  euros: RankedOffer[];
   sinDenominacion: RankedOffer[];
   otras: Map<string, RankedOffer[]>;
   implicitaPesos: boolean;
@@ -760,19 +766,25 @@ export type DenominationSplit = {
 
 const DOLLAR_NAME = /dolar|usd|u\$s/;
 const UVA_NAME = /uva/;
+const EURO_NAME = /\beuros?\b|\beur\b|€/;
+const PESO_NAME = /\bpesos?\b/;
+
+const HINT_LABEL: Record<CanonicalDenomination, string> = {
+  pesos: "pesos",
+  uva: "UVA",
+  dolares: "dólares",
+  euros: "euros",
+};
 
 /**
- * Currency for a fixed-term row whose published `denominacion` is empty.
- * The live catalog leaves that field null and puts the currency in
- * `nombreCorto` / `nombreCompleto` (`PFUVA`, `pftrad180dusd`, `en dólares`).
- * UVA is tested first. Dollar keywords are `dolar` (covers dólar/dólares),
- * `usd`, and `u$s`. Anything else, including a euro deposit, is pesos.
- * A published denominacion is never passed here.
+ * Currency explicitly named in the product. Null when the name does not
+ * state one, so a generic name is not treated as a peso claim.
+ * UVA is tested first, then dollars, then euros, then the word pesos.
  */
-export const inferMissingDenomination = (
+export const nameDenominationHint = (
   nombreCorto: string | null,
   nombreCompleto: string | null,
-): CanonicalDenomination => {
+): CanonicalDenomination | null => {
   const text = normalizeText(`${nombreCorto ?? ""} ${nombreCompleto ?? ""}`);
   if (UVA_NAME.test(text)) {
     return "uva";
@@ -780,7 +792,44 @@ export const inferMissingDenomination = (
   if (DOLLAR_NAME.test(text)) {
     return "dolares";
   }
-  return "pesos";
+  if (EURO_NAME.test(text)) {
+    return "euros";
+  }
+  if (PESO_NAME.test(text)) {
+    return "pesos";
+  }
+  return null;
+};
+
+/**
+ * Currency for a fixed-term row whose published `denominacion` is empty.
+ * The live catalog leaves that field null and puts the currency in
+ * `nombreCorto` / `nombreCompleto` (`PFUVA`, `pftrad180dusd`, `PF EURO`).
+ * A name with no currency keyword is pesos. A published denominacion is
+ * never passed here.
+ */
+export const inferMissingDenomination = (
+  nombreCorto: string | null,
+  nombreCompleto: string | null,
+): CanonicalDenomination =>
+  nameDenominationHint(nombreCorto, nombreCompleto) ?? "pesos";
+
+const markDenominationConflict = (offer: RankedOffer): void => {
+  const raw = publishedDenomination(offer);
+  const hint = nameDenominationHint(offer.nombreCorto, offer.nombreCompleto);
+  const published = canonicalDenomination(raw);
+  if (
+    raw !== null &&
+    hint !== null &&
+    published !== "sinDenominacion" &&
+    hint !== published
+  ) {
+    offer.posibleInconsistenciaDenominacion = true;
+    offer.motivoInconsistenciaDenominacion = `La denominación publicada es «${raw}» y el nombre del producto indica ${HINT_LABEL[hint]}.`;
+    return;
+  }
+  offer.posibleInconsistenciaDenominacion = false;
+  offer.motivoInconsistenciaDenominacion = null;
 };
 
 const pushCanonical = (
@@ -809,11 +858,14 @@ export const splitByDenomination = (
   if (policy === "implicit-pesos") {
     for (const offer of offers) {
       offer.denominacionInferida = false;
+      offer.posibleInconsistenciaDenominacion = false;
+      offer.motivoInconsistenciaDenominacion = null;
     }
     return {
       pesos: [...offers],
       uva: [],
       dolares: [],
+      euros: [],
       sinDenominacion: [],
       otras: new Map(),
       implicitaPesos: true,
@@ -823,12 +875,14 @@ export const splitByDenomination = (
     pesos: [],
     uva: [],
     dolares: [],
+    euros: [],
     sinDenominacion: [],
     otras: new Map(),
     implicitaPesos: false,
   };
   for (const offer of offers) {
     const published = canonicalDenomination(offer.contexto.denominacion);
+    markDenominationConflict(offer);
     if (published === "sinDenominacion" && policy === "infer-missing") {
       offer.denominacionInferida = true;
       pushCanonical(

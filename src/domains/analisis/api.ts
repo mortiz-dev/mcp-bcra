@@ -40,10 +40,10 @@ import type {
 } from "./schemas.js";
 
 const PUBLISHED_DENOMINATION_NOTE =
-  "Por defecto se rankea solo la denominación publicada «Pesos». uva corresponde al texto «UVA». dolares corresponde a «Dólares estadounidenses» y a «Dolares estadounidenses» (sin tilde, como publican los hipotecarios). En préstamos, una fila sin denominacion no se trata como pesos: se cuenta en ofertasSinDenominacion y queda fuera de pesos, uva y dolares. denominacion todas arma un ranking por moneda en rankings y deja resultados vacío, sin mezclar monedas en una sola lista. Si hay filas sin denominación, todas agrega el corte sinDenominacion. Otras etiquetas publicadas (Euros o UVI, si aparecen) van en su propio corte y se cuentan en ofertasOtraDenominacion.";
+  "Por defecto se rankea solo la denominación publicada «Pesos». uva corresponde al texto «UVA». dolares corresponde a «Dólares estadounidenses» y a «Dolares estadounidenses» (sin tilde, como publican los hipotecarios). En préstamos, una fila sin denominacion no se trata como pesos: se cuenta en ofertasSinDenominacion y queda fuera de pesos, uva y dolares. denominacion todas arma un ranking por moneda en rankings y deja resultados vacío, sin mezclar monedas en una sola lista. Si hay filas sin denominación, todas agrega el corte sinDenominacion. Euros publicado va al corte euros. Otras etiquetas (UVI, si aparece) van en su propio corte y se cuentan en ofertasOtraDenominacion. Si el nombre indica otra moneda que la publicada, posibleInconsistenciaDenominacion es true y se mantiene la publicada.";
 
 const INFERRED_DENOMINATION_NOTE =
-  "En plazos fijos el BCRA deja denominacion vacía. Si el campo no viene, la moneda se lee de nombreCorto y nombreCompleto: UVA va a uva; dolar, dólar, USD o u$s van a dolares; el resto va a pesos. Esas filas traen denominacionInferida true y el nombre del producto que se usó. Una denominacion publicada gana siempre y deja denominacionInferida en false. Un nombre en euros, sin esas palabras, entra en pesos. denominacion todas no mezcla monedas.";
+  "En plazos fijos el BCRA deja denominacion vacía. Si el campo no viene, la moneda se lee de nombreCorto y nombreCompleto: UVA va a uva; dolar, dólar, USD o u$s van a dolares; euro, euros, EUR o € van a euros y no a pesos; el resto va a pesos. Esas filas traen denominacionInferida true y el nombre del producto que se usó. Una denominacion publicada gana siempre. Si el nombre indica otra moneda, posibleInconsistenciaDenominacion es true y la publicada se mantiene. denominacion todas no mezcla monedas.";
 
 const CARD_DENOMINATION_NOTE =
   "Las tarjetas no publican denominacion, ni en la API ni en el PDF del régimen. Todo el catálogo se rankea como pesos con implicita true. Pedir uva o dolares devuelve un corte vacío y no reclasifica las tarjetas. denominacion todas mantiene los cortes separados; el de pesos trae el catálogo.";
@@ -243,6 +243,10 @@ export const createAnalisisApi = (
             contexto: row.contexto,
             ofertasEntidad: row.ofertasEntidad,
             denominacionInferida: row.denominacionInferida === true,
+            posibleInconsistenciaDenominacion:
+              row.posibleInconsistenciaDenominacion === true,
+            motivoInconsistenciaDenominacion:
+              row.motivoInconsistenciaDenominacion ?? null,
             atipico: row.atipico === true,
           })),
         };
@@ -257,6 +261,7 @@ export const createAnalisisApi = (
               { label: "pesos", offers: split.pesos, implicita: split.implicitaPesos },
               { label: "uva", offers: split.uva, implicita: false },
               { label: "dolares", offers: split.dolares, implicita: false },
+              { label: "euros", offers: split.euros, implicita: false },
               ...(split.sinDenominacion.length > 0
                 ? [
                     {

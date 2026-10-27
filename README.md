@@ -76,7 +76,7 @@ The figures come from public [BCRA APIs](https://www.bcra.gob.ar/BCRAyVos/catalo
 
 - Freshness: every macro indicator includes `fechaUltimaObservacion`, `diasDesdeUltimaObservacion` and `vigente` (true when the last point is at most 21 days old). Policy-rate series 160 stopped on 2025-07-10 and is not replaced.
 - Outliers: rankings drop rates outside a per-denomination fence (modified z-score 3.5). If the MAD is 0, the fence is Tukey's IQR, then a mean-absolute-deviation scale. A rate equal to the hard floor is `atipico`. Discarded rows come back in `valoresDescartados`.
-- Currency: loan rows use the published `denominacion`. Fixed-term rows leave that field empty, so the currency is inferred from `nombreCorto` and `nombreCompleto` (UVA, then dólar/USD/u$s, otherwise pesos) and marked `denominacionInferida: true`. A published value always wins. Cards have no currency field and are treated as pesos.
+- Currency: loan rows use the published `denominacion`. Fixed-term rows leave that field empty, so the currency is inferred from `nombreCorto` and `nombreCompleto` (UVA, then dólar/USD/u$s, then euro/EUR/€, otherwise pesos) and marked `denominacionInferida: true`. Euros are never folded into pesos. A published value always wins. If that published value disagrees with the product name, the row stays in the published bucket and sets `posibleInconsistenciaDenominacion: true` with `motivoInconsistenciaDenominacion`. Cards have no currency field and are treated as pesos.
 - The fixed-term plazo filter is the integer BCRA publishes (live values 0–5), not a count of days.
 
 The rest of this file is the reference for parameters, formulas and local development.
@@ -100,7 +100,7 @@ Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva 
 | `get-bcra-fx-quotes` | `fecha` opcional |
 | `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
 | `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
-| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar`, `limit` (1–500, default 100), `incluirTasasCero` (default `false`), `incluirValoresAtipicos` (default `false`) y `denominacion` (`pesos` por defecto, `uva`, `dolares` o `todas`) opcionales. En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` opcionales |
+| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar`, `limit` (1–500, default 100), `incluirTasasCero` (default `false`), `incluirValoresAtipicos` (default `false`) y `denominacion` (`pesos` por defecto, `uva`, `dolares`, `euros` o `todas`) opcionales. En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` opcionales |
 | `get-bcra-tasa-real-plazo-fijo` | `tasaNominalAnual` opcional; `desde`, `hasta` y `plazoDias` (1–3000) opcionales. Sin fechas, toma 30 días hasta el último CER |
 | `get-bcra-snapshot-macro` | Sin parámetros específicos |
 
@@ -130,11 +130,13 @@ Estas tres tools no reemplazan a las de consulta: arman una respuesta a partir d
 
 Por defecto hay una fila por entidad (la oferta extrema según el orden) y el orden favorece al usuario: mayor TEA mínima en plazos fijos y menor costo en préstamos y tarjetas. `modo: "oferta"` lista cada producto publicado. Cada fila trae código y nombre de entidad, tasas, fecha de información y la ruta de origen. Cajas de ahorro y paquetes no entran: no tienen un campo de tasa.
 
-El ranking es de una sola denominación. El default es `pesos`. En préstamos, `pesos` es el texto publicado «Pesos», `uva` es «UVA» y `dolares` acepta «Dólares estadounidenses» y «Dolares estadounidenses». `denominacion: "todas"` no arma una lista mezclada: cada moneda va en `rankings` y `resultados` queda vacío. `limit` se aplica dentro de cada corte.
+El ranking es de una sola denominación. El default es `pesos`. En préstamos, `pesos` es el texto publicado «Pesos», `uva` es «UVA», `dolares` acepta «Dólares estadounidenses» y «Dolares estadounidenses», y `euros` es «Euros». `denominacion: "todas"` no arma una lista mezclada: cada moneda va en `rankings` y `resultados` queda vacío. `limit` se aplica dentro de cada corte.
 
-En plazos fijos el campo `denominacion` viene vacío. Solo en ese caso la moneda se infiere de `nombreCorto` y `nombreCompleto`: si el texto tiene UVA, es uva; si no, si tiene dolar, dólar, USD o u$s, es dólares; si no, es pesos. La fila lleva `denominacionInferida: true` y conserva el nombre que se usó. Una `denominacion` publicada gana y deja el flag en false. Un plazo fijo en euros no tiene palabra clave y entra en pesos. `ofertasDenominacionInferida` cuenta esas filas.
+En plazos fijos el campo `denominacion` viene vacío. Solo en ese caso la moneda se infiere de `nombreCorto` y `nombreCompleto`: si el texto tiene UVA, es uva; si no, si tiene dolar, dólar, USD o u$s, es dólares; si no, si tiene euro, euros, EUR o €, es euros; si no, es pesos. La fila lleva `denominacionInferida: true` y conserva el nombre que se usó. Una `denominacion` publicada gana y deja el flag en false. `ofertasDenominacionInferida` cuenta esas filas.
 
-En préstamos, una fila sin `denominacion` no se trata como pesos. Se cuenta en `ofertasSinDenominacion` y, con `todas`, forma el corte `sinDenominacion`. Otras etiquetas publicadas (Euros o UVI) no se pliegan a pesos.
+Si la publicada no coincide con el nombre (por ejemplo «Pesos» y un `nombreCorto` «UVA»), la fila sigue en el corte publicado y marca `posibleInconsistenciaDenominacion: true`, con el motivo en `motivoInconsistenciaDenominacion`. Un nombre sin moneda no genera esa marca.
+
+En préstamos, una fila sin `denominacion` no se trata como pesos. Se cuenta en `ofertasSinDenominacion` y, con `todas`, forma el corte `sinDenominacion`. UVI, si aparece, no se pliega a pesos ni a UVA.
 
 Las tarjetas no traen `denominacion`, ni la API ni el PDF del régimen. El catálogo entero se rankea como pesos y el corte lleva `implicita: true`. Pedir uva o dólares devuelve un corte vacío.
 

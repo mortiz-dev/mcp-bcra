@@ -428,7 +428,12 @@ describe("denomination split", () => {
     expect(inferMissingDenomination("PF TRADICIONAL", "PLAZO FIJO EN PESOS")).toBe(
       "pesos",
     );
-    expect(inferMissingDenomination("PF EURO", "PLAZO FIJO EN EUROS")).toBe("pesos");
+    expect(inferMissingDenomination("PF EURO", "PLAZO FIJO EN EUROS")).toBe("euros");
+    expect(
+      inferMissingDenomination("PLAZO FIJO EUROS", "PLAZO FIJO INTRANSFERIBLE"),
+    ).toBe("euros");
+    expect(inferMissingDenomination("EUR", "DEPOSITO")).toBe("euros");
+    expect(inferMissingDenomination("PF €", "PLAZO FIJO")).toBe("euros");
     expect(inferMissingDenomination("PF TRADIC USS", "PLAZO FIJO TRADICIONAL")).toBe(
       "pesos",
     );
@@ -442,7 +447,8 @@ describe("denomination split", () => {
     expect(canonicalDenomination("Dolares estadounidenses")).toBe("dolares");
     expect(canonicalDenomination("  ")).toBe("sinDenominacion");
     expect(canonicalDenomination(null)).toBe("sinDenominacion");
-    expect(canonicalDenomination("Euros")).toBe("otra");
+    expect(canonicalDenomination("Euros")).toBe("euros");
+    expect(canonicalDenomination("Euro")).toBe("euros");
     expect(canonicalDenomination("UVI")).toBe("otra");
 
     const offers = [
@@ -458,8 +464,9 @@ describe("denomination split", () => {
     expect(split.pesos.map((offer) => offer.codigoEntidad)).toEqual([1]);
     expect(split.uva.map((offer) => offer.codigoEntidad)).toEqual([2]);
     expect(split.dolares.map((offer) => offer.codigoEntidad)).toEqual([3, 4]);
+    expect(split.euros.map((offer) => offer.codigoEntidad)).toEqual([6]);
     expect(split.sinDenominacion.map((offer) => offer.codigoEntidad)).toEqual([5]);
-    expect(split.otras.get("Euros")?.map((offer) => offer.codigoEntidad)).toEqual([6]);
+    expect(split.otras.size).toBe(0);
 
     const cards = splitByDenomination(offers, "implicit-pesos");
     expect(cards.implicitaPesos).toBe(true);
@@ -494,6 +501,42 @@ describe("denomination split", () => {
     expect(inferred.sinDenominacion).toEqual([]);
     expect(inferred.pesos[0]?.denominacionInferida).toBe(true);
     expect(inferred.pesos[0]?.nombreCompleto).toBe("PLAZO FIJO TRADICIONAL");
+
+    const euroDeposits = [
+      rankedOffer(322, 0.15, "tasaEfectivaAnualMinima"),
+      rankedOffer(389, 0.1, "tasaEfectivaAnualMinima"),
+    ];
+    const banco322 = euroDeposits[0];
+    const banco389 = euroDeposits[1];
+    if (!banco322 || !banco389) {
+      throw new Error("missing euro offers");
+    }
+    banco322.nombreCorto = "PLAZO FIJO EUROS";
+    banco322.nombreCompleto = "PLAZO FIJO INTRANSFERIBLE";
+    banco389.nombreCorto = "PF EURO";
+    banco389.nombreCompleto = "PLAZO FIJO EN EUROS";
+    const euroSplit = splitByDenomination(euroDeposits, "infer-missing");
+    expect(euroSplit.euros.map((offer) => offer.codigoEntidad)).toEqual([322, 389]);
+    expect(euroSplit.pesos).toEqual([]);
+    expect(euroSplit.euros.every((offer) => offer.denominacionInferida === true)).toBe(
+      true,
+    );
+
+    const conflicted = rankedOffer(
+      14,
+      28.07,
+      "costoFinancieroEfectivoTotalMaximo",
+      "Pesos",
+    );
+    conflicted.nombreCorto = "UVA";
+    conflicted.nombreCompleto = "PRESTAMO PERSONAL";
+    const conflictSplit = splitByDenomination([conflicted], "published");
+    expect(conflictSplit.pesos.map((offer) => offer.codigoEntidad)).toEqual([14]);
+    expect(conflictSplit.uva).toEqual([]);
+    expect(conflictSplit.pesos[0]?.posibleInconsistenciaDenominacion).toBe(true);
+    expect(conflictSplit.pesos[0]?.motivoInconsistenciaDenominacion).toContain("UVA");
+    expect(conflictSplit.pesos[0]?.motivoInconsistenciaDenominacion).toContain("Pesos");
+    expect(conflictSplit.pesos[0]?.denominacionInferida).toBe(false);
   });
 });
 
@@ -947,7 +990,7 @@ describe("analisis API", () => {
     expect(rankingResponseSchema.parse(pesos).filtros.denominacion).toBe("pesos");
     expect(pesos.resultados.map((row) => row.codigoEntidad)).toEqual([1]);
     expect(pesos.ofertasSinDenominacion).toBe(1);
-    expect(pesos.ofertasOtraDenominacion).toBe(1);
+    expect(pesos.ofertasOtraDenominacion).toBe(0);
     expect(pesos.notaDenominacion).toContain("no se trata como pesos");
     expect(pesos.rankings.map((slice) => slice.denominacion)).toEqual(["pesos"]);
 
@@ -974,8 +1017,8 @@ describe("analisis API", () => {
       "pesos",
       "uva",
       "dolares",
+      "euros",
       "sinDenominacion",
-      "Euros",
     ]);
     expect(
       all.rankings.find((slice) => slice.denominacion === "pesos")?.resultados,
@@ -988,7 +1031,7 @@ describe("analisis API", () => {
         ?.resultados,
     ).toEqual([expect.objectContaining({ codigoEntidad: 5 })]);
     expect(
-      all.rankings.find((slice) => slice.denominacion === "Euros")?.resultados,
+      all.rankings.find((slice) => slice.denominacion === "euros")?.resultados,
     ).toEqual([expect.objectContaining({ codigoEntidad: 6 })]);
 
     const cards = await api.rankRates({ producto: "tarjetas" });
@@ -1012,6 +1055,7 @@ describe("analisis API", () => {
         ["pesos", 2],
         ["uva", 0],
         ["dolares", 0],
+        ["euros", 0],
       ],
     );
     expect(cardsAll.rankings[0]?.implicita).toBe(true);
