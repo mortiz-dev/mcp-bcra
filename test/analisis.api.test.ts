@@ -5,6 +5,7 @@ import {
   canonicalDenomination,
   computeRealRate,
   daysBetween,
+  inferMissingDenomination,
   PRODUCT_SPECS,
   partitionByPlausibility,
   type RankedOffer,
@@ -323,7 +324,7 @@ describe("ranking plausibility", () => {
     );
   });
 
-  it("falls back to the hard ceiling when MAD is zero", () => {
+  it("uses mean absolute deviation when MAD and IQR are both zero", () => {
     const offers = Array.from({ length: 8 }, (_, index) =>
       rankedOffer(index + 1, 20, "tasaEfectivaAnualMinima"),
     );
@@ -332,10 +333,49 @@ describe("ranking plausibility", () => {
       offers,
       PRODUCT_SPECS.plazosFijos.plausibility,
     );
-    expect(result.limits[0]?.escala).toBe("cota");
-    expect(result.limits[0]?.mad).toBe(0);
+    expect(result.limits[0]?.escala).toBe("lineal");
+    expect(result.limits[0]?.metodo).toBe("desviacion-media");
+    expect(result.limits[0]?.mad).toBeGreaterThan(0);
     expect(result.discarded.map((row) => row.valor)).toEqual([500]);
     expect(result.discarded[0]?.motivo).toContain("cota máxima");
+  });
+
+  it("uses an IQR fence when a tied mode makes the MAD zero", () => {
+    const offers = [
+      rankedOffer(90, 2, "costoFinancieroEfectivoTotalMaximo", "Pesos"),
+      ...Array.from({ length: 3 }, (_, index) =>
+        rankedOffer(index + 1, 20, "costoFinancieroEfectivoTotalMaximo", "Pesos"),
+      ),
+      ...Array.from({ length: 11 }, (_, index) =>
+        rankedOffer(index + 10, 28.28, "costoFinancieroEfectivoTotalMaximo", "Pesos"),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        rankedOffer(index + 30, 60, "costoFinancieroEfectivoTotalMaximo", "Pesos"),
+      ),
+    ];
+    const result = partitionByPlausibility(
+      offers,
+      PRODUCT_SPECS.prestamosHipotecarios.plausibility,
+    );
+    expect(result.limits[0]?.metodo).toBe("iqr");
+    expect(result.limits[0]?.escala).toBe("logaritmica");
+    expect(result.limits[0]?.inferior).toBeGreaterThan(2);
+    expect(result.kept.some((offer) => offer.sortKey === 28.28)).toBe(true);
+    expect(result.kept.some((offer) => offer.sortKey === 2)).toBe(false);
+  });
+
+  it("flags a rate sitting on the hard floor", () => {
+    const offers = [1, 10, 11, 12, 13, 14, 15, 16].map((rate, index) =>
+      rankedOffer(index + 1, rate, "costoFinancieroEfectivoTotalMaximo", "Dólares"),
+    );
+    const result = partitionByPlausibility(
+      offers,
+      PRODUCT_SPECS.prestamosPrendarios.plausibility,
+    );
+    expect(result.discarded.map((row) => row.valor)).toEqual([1]);
+    expect(result.discarded[0]?.motivo).toContain("cota mínima");
+    expect(result.kept.some((offer) => offer.sortKey === 1)).toBe(false);
+    expect(result.kept.some((offer) => offer.sortKey === 10)).toBe(true);
   });
 
   it("shares one fence when the caller names the denomination", () => {
@@ -367,7 +407,35 @@ describe("ranking plausibility", () => {
 });
 
 describe("denomination split", () => {
-  it("keeps published currencies apart and does not treat a blank as pesos", () => {
+  it("infers a missing fixed-term currency from the product name", () => {
+    expect(inferMissingDenomination("PFUVA", "PLAZO FIJO UVA")).toBe("uva");
+    expect(
+      inferMissingDenomination(
+        "UVA PRECANCELABLE",
+        "PLAZO FIJO PRECANCELABLE EN UNIDADES DE VALOR ADQUISITIVO UVA",
+      ),
+    ).toBe("uva");
+    expect(inferMissingDenomination("pftrad180dusd", "plazofijotradicional")).toBe(
+      "dolares",
+    );
+    expect(inferMissingDenomination("PF", "PLAZO FIJO EN DÓLARES")).toBe("dolares");
+    expect(inferMissingDenomination("PF TRADIC HB", "PLAZO FIJO EN U$S")).toBe(
+      "dolares",
+    );
+    expect(inferMissingDenomination("PFUVA USD", "PLAZO FIJO UVA EN DOLARES")).toBe(
+      "uva",
+    );
+    expect(inferMissingDenomination("PF TRADICIONAL", "PLAZO FIJO EN PESOS")).toBe(
+      "pesos",
+    );
+    expect(inferMissingDenomination("PF EURO", "PLAZO FIJO EN EUROS")).toBe("pesos");
+    expect(inferMissingDenomination("PF TRADIC USS", "PLAZO FIJO TRADICIONAL")).toBe(
+      "pesos",
+    );
+    expect(inferMissingDenomination(null, null)).toBe("pesos");
+  });
+
+  it("keeps published currencies apart and infers only a blank fixed-term row", () => {
     expect(canonicalDenomination("Pesos")).toBe("pesos");
     expect(canonicalDenomination("UVA")).toBe("uva");
     expect(canonicalDenomination("Dólares estadounidenses")).toBe("dolares");
@@ -398,6 +466,34 @@ describe("denomination split", () => {
     expect(cards.pesos).toHaveLength(offers.length);
     expect(cards.sinDenominacion).toEqual([]);
     expect(cards.uva).toEqual([]);
+    expect(cards.pesos.every((offer) => offer.denominacionInferida === false)).toBe(
+      true,
+    );
+
+    const named = [
+      rankedOffer(11, 30, "tasaEfectivaAnualMinima"),
+      rankedOffer(7, 1, "tasaEfectivaAnualMinima"),
+      rankedOffer(14, 0.5, "tasaEfectivaAnualMinima"),
+    ];
+    const tradicional = named[0];
+    const uva = named[1];
+    const dolar = named[2];
+    if (!tradicional || !uva || !dolar) {
+      throw new Error("missing named offers");
+    }
+    tradicional.nombreCorto = "PFTRADICIONAL";
+    tradicional.nombreCompleto = "PLAZO FIJO TRADICIONAL";
+    uva.nombreCorto = "PFUVA";
+    uva.nombreCompleto = "PLAZO FIJO UVA";
+    dolar.nombreCorto = "pftrad180dusd";
+    dolar.nombreCompleto = "plazofijotradicional";
+    const inferred = splitByDenomination(named, "infer-missing");
+    expect(inferred.pesos.map((offer) => offer.codigoEntidad)).toEqual([11]);
+    expect(inferred.uva.map((offer) => offer.codigoEntidad)).toEqual([7]);
+    expect(inferred.dolares.map((offer) => offer.codigoEntidad)).toEqual([14]);
+    expect(inferred.sinDenominacion).toEqual([]);
+    expect(inferred.pesos[0]?.denominacionInferida).toBe(true);
+    expect(inferred.pesos[0]?.nombreCompleto).toBe("PLAZO FIJO TRADICIONAL");
   });
 });
 
@@ -463,6 +559,82 @@ describe("analisis API", () => {
       { codigoEntidad: undefined },
       { locale: "en-US", signal },
     );
+  });
+
+  it("infers peso, UVA and dollar fixed terms when denominacion is missing", async () => {
+    const offers = [
+      {
+        codigoEntidad: 11,
+        descripcionEntidad: "BANCO NACION",
+        nombreCorto: "PFTRADICIONAL",
+        nombreCompleto: "PLAZO FIJO TRADICIONAL",
+        fechaInformacion: "2026-10-21",
+        tasaEfectivaAnualMinima: 30,
+      },
+      {
+        codigoEntidad: 7,
+        descripcionEntidad: "BANCO GALICIA",
+        nombreCorto: "PFUVA",
+        nombreCompleto: "PLAZO FIJO UVA",
+        fechaInformacion: "2026-10-22",
+        tasaEfectivaAnualMinima: 1,
+      },
+      {
+        codigoEntidad: 14,
+        descripcionEntidad: "BANCO CIUDAD",
+        nombreCorto: "pftrad180dusd",
+        nombreCompleto: "plazofijotradicional",
+        fechaInformacion: "2026-10-22",
+        tasaEfectivaAnualMinima: 0.5,
+      },
+      {
+        codigoEntidad: 17,
+        descripcionEntidad: "BANCO MACRO",
+        nombreCorto: "PF",
+        nombreCompleto: "PLAZO FIJO EN DÓLARES",
+        fechaInformacion: "2026-10-22",
+        tasaEfectivaAnualMinima: 2,
+      },
+      {
+        codigoEntidad: 29,
+        descripcionEntidad: "PUBLICADO",
+        nombreCorto: "PFUVA",
+        nombreCompleto: "PLAZO FIJO UVA",
+        fechaInformacion: "2026-10-22",
+        tasaEfectivaAnualMinima: 40,
+        denominacion: "Pesos",
+      },
+    ];
+    const { client } = mockClient(undefined, offers);
+    const api = createAnalisisApi(client, { now: () => NOW });
+    const pesos = await api.rankRates({ producto: "plazosFijos" });
+    expect(rankingResponseSchema.parse(pesos).ofertasDenominacionInferida).toBe(4);
+    expect(pesos.ofertasSinDenominacion).toBe(0);
+    expect(pesos.notaDenominacion).toContain("denominacionInferida true");
+    expect(
+      pesos.resultados.map((row) => [
+        row.codigoEntidad,
+        row.denominacionInferida,
+        row.nombreCompleto,
+        row.tasas.tasaEfectivaAnualMinima,
+      ]),
+    ).toEqual([
+      [29, false, "PLAZO FIJO UVA", 40],
+      [11, true, "PLAZO FIJO TRADICIONAL", 30],
+    ]);
+
+    const uva = await api.rankRates({ producto: "plazosFijos", denominacion: "uva" });
+    expect(
+      uva.resultados.map((row) => [row.codigoEntidad, row.denominacionInferida]),
+    ).toEqual([[7, true]]);
+    expect(uva.resultados[0]?.nombreCorto).toBe("PFUVA");
+
+    const dollars = await api.rankRates({
+      producto: "plazosFijos",
+      denominacion: "dolares",
+    });
+    expect(dollars.resultados.map((row) => row.codigoEntidad)).toEqual([17, 14]);
+    expect(dollars.resultados.every((row) => row.denominacionInferida)).toBe(true);
   });
 
   it("filters offers, truncates, and prefers CFT over a lone TEA", async () => {

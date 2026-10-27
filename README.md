@@ -1,46 +1,85 @@
 # MCP BCRA
 
-Servidor Model Context Protocol de solo lectura para consultar APIs públicas del Banco Central de la República Argentina (BCRA).
+[![CI](https://github.com/mortiz-dev/mcp-bcra/actions/workflows/ci.yml/badge.svg)](https://github.com/mortiz-dev/mcp-bcra/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/mcp-bcra)](https://www.npmjs.com/package/mcp-bcra)
+[![license](https://img.shields.io/github/license/mortiz-dev/mcp-bcra)](./LICENSE)
 
-La versión 2 implementa MCP `2026-07-28` mediante `@modelcontextprotocol/server` v2 y mantiene compatibilidad stdio con clientes MCP de la era 2025. Todas las tools publican schemas de entrada y salida, metadatos de seguridad y respuestas estructuradas.
+**English:** Read-only MCP server for Argentina's central bank. Compare peso, UVA and dollar deposit and loan rates, see whether a plazo fijo beat CER inflation, and read today's official dollar, reserves and monetary base.
 
-## Requisitos
+**Español:** Servidor MCP de solo lectura del BCRA. Compará tasas de plazos fijos y préstamos en pesos, UVA o dólares, mirá si un plazo fijo le ganó a la inflación del CER, y consultá el dólar oficial, las reservas y la base monetaria de hoy.
 
-- Node.js 22 o 24 LTS.
-- Bun 1.3.11 para desarrollo y gestión del lockfile.
+Node.js 22 or later. The server speaks stdio. `stdout` is reserved for MCP; operational errors go to `stderr`. Nothing here is financial advice, and the package is not published until the owner runs the manual steps at the end of this file.
 
-## Instalación y ejecución
+## Install
 
-Desde el checkout:
-
-```bash
-bun install
-bun run build
-node dist/index.js
-```
-
-Una vez publicado en npm, el binario se podrá ejecutar con:
-
-```bash
-npx mcp-bcra
-```
-
-El servidor usa stdio. `stdout` queda reservado para el protocolo MCP; los errores operativos se escriben en `stderr`.
+One command, after `npm publish`. Until then, use a local checkout (`bun install && bun run build` and `node dist/index.js`).
 
 ### Claude Desktop
+
+`claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "bcra": {
-      "command": "node",
-      "args": ["/RUTA/ABSOLUTA/mcp-bcra/dist/index.js"]
+      "command": "npx",
+      "args": ["-y", "mcp-bcra"]
     }
   }
 }
 ```
 
-También puede usarse `bun` como comando. Siempre use rutas absolutas en clientes de escritorio.
+### Cursor
+
+`.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "bcra": {
+      "command": "npx",
+      "args": ["-y", "mcp-bcra"]
+    }
+  }
+}
+```
+
+### VS Code
+
+`.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "bcra": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-bcra"]
+    }
+  }
+}
+```
+
+## Questions this server can answer
+
+| Question | Tool |
+|---|---|
+| Which bank pays the highest peso plazo fijo? / ¿Qué banco paga más un plazo fijo en pesos? | `get-bcra-ranking-tasas` with `producto: "plazosFijos"` (pesos is the default) |
+| Which peso personal loan is cheapest? / ¿Cuál es el préstamo personal en pesos más barato? | `get-bcra-ranking-tasas` with `producto: "prestamosPersonales"` |
+| Did a 30% TNA beat inflation last month? / ¿Un plazo fijo al 30% le ganó a la inflación? | `get-bcra-tasa-real-plazo-fijo` |
+| What is the official dollar, and where are reserves, today? / ¿A cuánto está el dólar oficial y las reservas? | `get-bcra-snapshot-macro` |
+| What does the BCRA publish about this CUIT? / ¿Qué situación crediticia publica el BCRA para este CUIT? | `get-bcra-client-central-deudores` |
+
+## Data sources and limits
+
+The figures come from public [BCRA APIs](https://www.bcra.gob.ar/BCRAyVos/catalogo-de-APIs-banco-central.asp): Central de Deudores, cheques, Estadísticas monetarias v4, Estadísticas cambiarias, the Transparencia v1.0 product catalog, and the official Series Excel catalog. There is no login and no private data except the CUIT/CUIL/CDI the caller chooses to send.
+
+- Freshness: every macro indicator includes `fechaUltimaObservacion`, `diasDesdeUltimaObservacion` and `vigente` (true when the last point is at most 21 days old). Policy-rate series 160 stopped on 2025-07-10 and is not replaced.
+- Outliers: rankings drop rates outside a per-denomination fence (modified z-score 3.5). If the MAD is 0, the fence is Tukey's IQR, then a mean-absolute-deviation scale. A rate equal to the hard floor is `atipico`. Discarded rows come back in `valoresDescartados`.
+- Currency: loan rows use the published `denominacion`. Fixed-term rows leave that field empty, so the currency is inferred from `nombreCorto` and `nombreCompleto` (UVA, then dólar/USD/u$s, otherwise pesos) and marked `denominacionInferida: true`. A published value always wins. Cards have no currency field and are treated as pesos.
+- The fixed-term plazo filter is the integer BCRA publishes (live values 0–5), not a count of days.
+
+The rest of this file is the reference for parameters, formulas and local development.
 
 ## Herramientas
 
@@ -91,9 +130,11 @@ Estas tres tools no reemplazan a las de consulta: arman una respuesta a partir d
 
 Por defecto hay una fila por entidad (la oferta extrema según el orden) y el orden favorece al usuario: mayor TEA mínima en plazos fijos y menor costo en préstamos y tarjetas. `modo: "oferta"` lista cada producto publicado. Cada fila trae código y nombre de entidad, tasas, fecha de información y la ruta de origen. Cajas de ahorro y paquetes no entran: no tienen un campo de tasa.
 
-El ranking es de una sola denominación. El default es `pesos`: solo filas cuyo texto publicado en `denominacion` es «Pesos». `denominacion: "uva"` usa «UVA». `denominacion: "dolares"` usa «Dólares estadounidenses» y también «Dolares estadounidenses», sin tilde, que es como vienen los hipotecarios. Esas tres grafías salen del catálogo vivo del 2026-10-27. `denominacion: "todas"` no arma una lista mezclada: cada moneda va en `rankings` y `resultados` queda vacío. `limit` se aplica dentro de cada corte.
+El ranking es de una sola denominación. El default es `pesos`. En préstamos, `pesos` es el texto publicado «Pesos», `uva` es «UVA» y `dolares` acepta «Dólares estadounidenses» y «Dolares estadounidenses». `denominacion: "todas"` no arma una lista mezclada: cada moneda va en `rankings` y `resultados` queda vacío. `limit` se aplica dentro de cada corte.
 
-Una fila sin `denominacion` no se trata como pesos. En plazos fijos el campo existe y el 2026-10-27 viene nulo en las 923 filas, aunque el nombre del producto diga UVA o dólares. Esta tool no lee la moneda del nombre. Esas filas se cuentan en `ofertasSinDenominacion` (después de quitar ceros, plazos y la búsqueda) y quedan fuera de pesos, uva y dólares. Con `todas` forman el corte `sinDenominacion`, que puede mezclar monedas porque el BCRA no las clasificó. Otras etiquetas (el PDF nombra Euros y UVI; no se vieron en el catálogo vivo) no se pliegan a pesos: van a `ofertasOtraDenominacion` y, con `todas`, a un corte por texto publicado.
+En plazos fijos el campo `denominacion` viene vacío. Solo en ese caso la moneda se infiere de `nombreCorto` y `nombreCompleto`: si el texto tiene UVA, es uva; si no, si tiene dolar, dólar, USD o u$s, es dólares; si no, es pesos. La fila lleva `denominacionInferida: true` y conserva el nombre que se usó. Una `denominacion` publicada gana y deja el flag en false. Un plazo fijo en euros no tiene palabra clave y entra en pesos. `ofertasDenominacionInferida` cuenta esas filas.
+
+En préstamos, una fila sin `denominacion` no se trata como pesos. Se cuenta en `ofertasSinDenominacion` y, con `todas`, forma el corte `sinDenominacion`. Otras etiquetas publicadas (Euros o UVI) no se pliegan a pesos.
 
 Las tarjetas no traen `denominacion`, ni la API ni el PDF del régimen. El catálogo entero se rankea como pesos y el corte lleva `implicita: true`. Pedir uva o dólares devuelve un corte vacío.
 
@@ -101,7 +142,9 @@ Por defecto se excluyen las ofertas cuyo campo de orden es nulo o cero (`excluye
 
 Con lo que queda dentro de la denominación pedida, cada corte calcula un intervalo de plausibilidad y, por defecto, saca del ranking lo que cae afuera (`excluyeValoresAtipicos: true`). Esos valores no se ocultan: van en `valoresDescartados` de ese corte, con entidad, campo, valor y motivo. Si se pidió una sola denominación, los mismos campos se espejan en la raíz. `incluirValoresAtipicos: true` los devuelve en el ranking con `atipico: true` y deja `valoresDescartados` vacío. `limitesPlausibilidad` trae el intervalo del corte.
 
-La regla es el z modificado de Iglewicz y Hoaglin (1993): una tasa positiva queda afuera cuando `|0,6745 · (x − mediana) / MAD| > 3,5`. La MAD es la mediana de las desviaciones absolutas. El grupo es la denominación pedida, así las dos grafías de dólares comparten una sola valla. Con menos de 8 tasas positivas, o si la MAD es 0, no se usa el z y solo rigen las cotas fijas. Plazos fijos y tarjetas se miden en la escala de la tasa. El CFT de los préstamos se mide en logaritmo, porque la cola derecha en pesos es tan larga que una valla lineal cae por debajo de cero y dejaría pasar un CFT de 0,5. Las cotas fijas, en porcentaje anual y de comparación estricta, son plazos fijos `[0, 150]`, préstamos `[1, 10000]` y tarjetas `[1, 2500]`. El intervalo se recalcula en cada llamada, dentro de cada denominación.
+La regla es el z modificado de Iglewicz y Hoaglin (1993): una tasa positiva queda afuera cuando `|0,6745 · (x − mediana) / MAD| > 3,5`. La MAD es la mediana de las desviaciones absolutas. El grupo es la denominación pedida, así las dos grafías de dólares comparten una sola valla. Con menos de 8 tasas positivas no se usa el z y solo rigen las cotas fijas. Si hay 8 o más y la MAD es 0, porque una moda atada aplasta la mediana de los desvíos (pasa en los hipotecarios en pesos), la valla pasa a ser la de Tukey: de `Q1 − 1,5·IQR` a `Q3 + 1,5·IQR`, en la misma escala. Si el IQR también es 0, la escala es la desviación absoluta media respecto de la mediana, llevada a un equivalente de MAD con el factor normal `0,6745 / sqrt(2/π)`, y se vuelve a usar el corte 3,5. Solo un grupo sin ninguna dispersión queda en las cotas fijas. `limitesPlausibilidad.metodo` dice cuál corrió: `z-modificado`, `iqr`, `desviacion-media` o `cota`. En `mad` va esa dispersión, en la escala transformada (el logaritmo, para el CFT).
+
+Plazos fijos y tarjetas se miden en la escala de la tasa. El CFT de los préstamos se mide en logaritmo, porque la cola derecha en pesos es tan larga que una valla lineal cae por debajo de cero y dejaría pasar un CFT de 0,5. Las cotas fijas, en porcentaje anual, son plazos fijos `[0, 150]`, préstamos `[1, 10000]` y tarjetas `[1, 2500]`. Un valor por debajo de la cota queda afuera. Un valor igual a una cota mínima positiva también es atípico. El caso que motiva el piso inclusivo es un prendario en dólares publicado en 1. El piso de los plazos fijos es 0, así que una TEA cero sigue el filtro de tasas cero y no esta regla. El intervalo se recalcula en cada llamada, dentro de cada denominación.
 
 En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` filtran el entero publicado en `plazoMinimoInvertirDias`, inclusive. Una fila sin ese número queda afuera cuando el filtro está puesto. Esos parámetros no aplican a préstamos ni tarjetas.
 
@@ -254,4 +297,4 @@ Se agrega `get-bcra-series-excel-catalog` sin modificar las tools existentes. Lo
 
 ## Migración: tools de respuesta
 
-Se agregan `get-bcra-ranking-tasas`, `get-bcra-tasa-real-plazo-fijo` y `get-bcra-snapshot-macro` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluirlas. Sus resultados no usan la envoltura `{status, results}`: traen la respuesta ya ordenada o calculada, con las series y los campos de tasa que se usaron. Siguen siendo de solo lectura y no consultan por CUIT/CUIL. El ranking excluye por defecto tasas nulas y cero del campo de orden, y ordena una sola denominación (`pesos` por defecto). `denominacion: "todas"` deja `resultados` vacío y separa cada moneda en `rankings`. Una fila sin `denominacion` no entra en pesos. Las tarjetas, que no publican el campo, se rankean como pesos con `implicita: true`. El snapshot informa `fechaUltimaObservacion`, `diasDesdeUltimaObservacion` y `vigente` en cada indicador. La serie 160 sigue siendo la tasa de política y está discontinuada aguas arriba.
+Se agregan `get-bcra-ranking-tasas`, `get-bcra-tasa-real-plazo-fijo` y `get-bcra-snapshot-macro` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluirlas. Sus resultados no usan la envoltura `{status, results}`: traen la respuesta ya ordenada o calculada, con las series y los campos de tasa que se usaron. Siguen siendo de solo lectura y no consultan por CUIT/CUIL. El ranking excluye por defecto tasas nulas y cero del campo de orden, y ordena una sola denominación (`pesos` por defecto). `denominacion: "todas"` deja `resultados` vacío y separa cada moneda en `rankings`. En plazos fijos, la moneda vacía se infiere del nombre y la fila marca `denominacionInferida`. En préstamos, una fila sin `denominacion` no entra en pesos. Las tarjetas, que no publican el campo, se rankean como pesos con `implicita: true`. El snapshot informa `fechaUltimaObservacion`, `diasDesdeUltimaObservacion` y `vigente` en cada indicador. La serie 160 sigue siendo la tasa de política y está discontinuada aguas arriba.

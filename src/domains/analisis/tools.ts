@@ -17,7 +17,7 @@ export const registerAnalisisTools = (server: McpServer, api: AnalisisApi): void
     {
       title: "Ranking de tasas por entidad",
       description:
-        "Ordena las tasas publicadas por Transparencia para plazos fijos, préstamos personales, hipotecarios, prendarios o tarjetas, dentro de una sola denominación. El default es pesos, el texto publicado «Pesos». denominacion acepta pesos, uva («UVA»), dolares («Dólares estadounidenses» o «Dolares estadounidenses») o todas. todas devuelve un ranking separado por moneda en rankings y deja resultados vacío: no mezcla monedas en una lista ordenada. Una fila sin denominacion no cuenta como pesos (en plazos fijos el campo viene nulo) y se informa en ofertasSinDenominacion. Las tarjetas no publican denominacion: el catálogo entero es pesos con implicita true. Por defecto excluye tasas nulas y ceros del campo de orden; incluirTasasCero las vuelve a incluir. Un CFT distinto de cero se conserva aunque otra tasa de la misma oferta sea 0. También aparta, por defecto y dentro de la denominación pedida, tasas fuera de un intervalo de plausibilidad (z modificado 3.5) y las lista en valoresDescartados; incluirValoresAtipicos las incluye con atipico true. Devuelve entidad, tasas, fecha y fuente. En plazos fijos, plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5 y esta tool no lo traduce a 30, 60, 90, 180 o 360. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
+        "Úsala para comparar bancos: quién paga más un plazo fijo o cobra menos un préstamo o una tarjeta. Ordena las tasas de Transparencia dentro de una sola denominación. El default es pesos. denominacion acepta pesos, uva, dolares o todas. todas devuelve un ranking separado por moneda en rankings y deja resultados vacío. En plazos fijos denominacion viene vacía: se infiere del nombre del producto (UVA; dolar, dólar, USD o u$s; si no, pesos), la fila lleva denominacionInferida true y se ve el nombre usado. Una denominacion publicada gana. En préstamos, una fila sin denominacion no es pesos. Las tarjetas no publican denominacion: el catálogo entero es pesos con implicita true. Por defecto excluye tasas nulas y ceros del campo de orden; incluirTasasCero las vuelve a incluir. Un CFT distinto de cero se conserva aunque otra tasa de la misma oferta sea 0. También aparta, dentro de la denominación, tasas fuera de un intervalo de plausibilidad (z modificado 3.5; si la MAD es 0, IQR o desviación media) y las lista en valoresDescartados. Una tasa igual a una cota mínima positiva (el piso 1 de préstamos y tarjetas) es atípica. incluirValoresAtipicos las incluye con atipico true. En plazos fijos, plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5 y esta tool no lo traduce. No hay filtro por tipo de entidad.",
       inputSchema: rankingInputSchema,
       dataSchema: rankingResponseSchema,
     },
@@ -31,7 +31,7 @@ export const registerAnalisisTools = (server: McpServer, api: AnalisisApi): void
     {
       title: "Tasa real de un plazo fijo",
       description:
-        "Compara una TNA (informada o la referencia de depósitos a 30 días) con la inflación medida por el CER en un período. Devuelve nominal, inflación, tasa real, series y fórmula.",
+        "Úsala para saber si un plazo fijo le gana a la inflación. Compara una TNA (informada o la referencia de depósitos a 30 días, serie 12) con la inflación medida por el CER (serie 30) en un período. Devuelve nominal, inflación, tasa real, series y fórmula. No usa el IPC mensual ni TAMAR ni BADLAR.",
       inputSchema: realRateInputSchema,
       dataSchema: realRateResponseSchema,
     },
@@ -45,7 +45,7 @@ export const registerAnalisisTools = (server: McpServer, api: AnalisisApi): void
     {
       title: "Snapshot macro diario",
       description:
-        "Resume tipo de cambio mayorista de referencia (serie 5), reservas internacionales (serie 1), base monetaria (serie 15) y la tasa de política monetaria (serie 160, TNA). Cada indicador trae la fecha de la última observación, los días desde esa fecha, el valor anterior, la variación y vigente (true si la última observación tiene como máximo 21 días). La serie 160 está discontinuada aguas arriba: el BCRA dejó de actualizarla el 2025-07-10. Esta tool no la sustituye por TAMAR, BADLAR ni tasas de pases.",
+        "Úsala para el dólar oficial de hoy, las reservas, la base monetaria y la tasa de política. Resume el tipo de cambio mayorista de referencia (serie 5), las reservas internacionales (serie 1), la base monetaria (serie 15) y la tasa de política monetaria (serie 160, TNA). Cada indicador trae la fecha de la última observación, los días desde esa fecha, el valor anterior, la variación y vigente (true si la última observación tiene como máximo 21 días). La serie 160 está discontinuada aguas arriba: el BCRA dejó de actualizarla el 2025-07-10. Esta tool no la sustituye por TAMAR, BADLAR ni tasas de pases.",
       inputSchema: snapshotInputSchema,
       dataSchema: snapshotResponseSchema,
     },

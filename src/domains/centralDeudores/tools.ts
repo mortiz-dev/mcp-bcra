@@ -13,7 +13,7 @@ export const registerCentralDeudoresTools = (
     {
       title: "Deuda actual por CUIT/CUIL/CDI",
       description:
-        "Consulta la situación crediticia actual publicada por la Central de Deudores del BCRA.",
+        "Úsala para la situación crediticia publicada de un CUIT, CUIL o CDI. No calcula un score ni una decisión de crédito.",
       inputSchema: clientIdSchema,
       dataSchema: centralDeudoresResponseSchema,
     },

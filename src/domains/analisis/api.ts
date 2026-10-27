@@ -40,7 +40,10 @@ import type {
 } from "./schemas.js";
 
 const PUBLISHED_DENOMINATION_NOTE =
-  "Por defecto se rankea solo la denominación publicada «Pesos». uva corresponde al texto «UVA». dolares corresponde a «Dólares estadounidenses» y a «Dolares estadounidenses» (sin tilde, como publican los hipotecarios). Una fila sin denominacion no se trata como pesos: el catálogo vivo de plazos fijos deja el campo nulo en todas las filas y esta tool no infiere la moneda del nombre del producto. Esas filas se cuentan en ofertasSinDenominacion y quedan fuera de pesos, uva y dolares. denominacion todas arma un ranking por moneda en rankings y deja resultados vacío, sin mezclar monedas en una sola lista. Si hay filas sin denominación, todas agrega el corte sinDenominacion. Otras etiquetas publicadas (Euros o UVI, si aparecen) van en su propio corte y se cuentan en ofertasOtraDenominacion.";
+  "Por defecto se rankea solo la denominación publicada «Pesos». uva corresponde al texto «UVA». dolares corresponde a «Dólares estadounidenses» y a «Dolares estadounidenses» (sin tilde, como publican los hipotecarios). En préstamos, una fila sin denominacion no se trata como pesos: se cuenta en ofertasSinDenominacion y queda fuera de pesos, uva y dolares. denominacion todas arma un ranking por moneda en rankings y deja resultados vacío, sin mezclar monedas en una sola lista. Si hay filas sin denominación, todas agrega el corte sinDenominacion. Otras etiquetas publicadas (Euros o UVI, si aparecen) van en su propio corte y se cuentan en ofertasOtraDenominacion.";
+
+const INFERRED_DENOMINATION_NOTE =
+  "En plazos fijos el BCRA deja denominacion vacía. Si el campo no viene, la moneda se lee de nombreCorto y nombreCompleto: UVA va a uva; dolar, dólar, USD o u$s van a dolares; el resto va a pesos. Esas filas traen denominacionInferida true y el nombre del producto que se usó. Una denominacion publicada gana siempre y deja denominacionInferida en false. Un nombre en euros, sin esas palabras, entra en pesos. denominacion todas no mezcla monedas.";
 
 const CARD_DENOMINATION_NOTE =
   "Las tarjetas no publican denominacion, ni en la API ni en el PDF del régimen. Todo el catálogo se rankea como pesos con implicita true. Pedir uva o dolares devuelve un corte vacío y no reclasifica las tarjetas. denominacion todas mantiene los cortes separados; el de pesos trae el catálogo.";
@@ -239,6 +242,7 @@ export const createAnalisisApi = (
             tasas: row.tasas,
             contexto: row.contexto,
             ofertasEntidad: row.ofertasEntidad,
+            denominacionInferida: row.denominacionInferida === true,
             atipico: row.atipico === true,
           })),
         };
@@ -285,7 +289,7 @@ export const createAnalisisApi = (
         orden,
         campoOrden: spec.sortField,
         camposTasa: [...spec.rateFields],
-        criterio: `${spec.criterio} Por defecto se rankea una sola denominación (pesos, el texto publicado «Pesos»; ver notaDenominacion). El intervalo de plausibilidad se calcula dentro de esa denominación (z modificado 3.5) y lo que queda afuera va a valoresDescartados. incluirValoresAtipicos lo devuelve en el ranking con atipico true.`,
+        criterio: `${spec.criterio} Por defecto se rankea una sola denominación (pesos, el texto publicado «Pesos»; ver notaDenominacion). El intervalo de plausibilidad se calcula dentro de esa denominación (z modificado 3.5; si la MAD es 0, valla IQR o desviación media) y lo que queda afuera va a valoresDescartados. Una tasa igual a una cota mínima positiva también es atípica. incluirValoresAtipicos lo devuelve en el ranking con atipico true.`,
         fuente: {
           api: "Transparencia v1.0",
           path: `/transparencia/v1.0/${transparenciaProductPaths[producto]}`,
@@ -296,12 +300,17 @@ export const createAnalisisApi = (
         ofertasFueraDePlazo: filtered.ofertasFueraDePlazo,
         ofertasSinDenominacion: split.sinDenominacion.length,
         ofertasOtraDenominacion,
+        ofertasDenominacionInferida: searched.filter(
+          (offer) => offer.denominacionInferida === true,
+        ).length,
         excluyeTasasCero: !incluirTasasCero,
         excluyeValoresAtipicos: !incluirValoresAtipicos,
         notaDenominacion:
           spec.denomination === "implicit-pesos"
             ? CARD_DENOMINATION_NOTE
-            : PUBLISHED_DENOMINATION_NOTE,
+            : spec.denomination === "infer-missing"
+              ? INFERRED_DENOMINATION_NOTE
+              : PUBLISHED_DENOMINATION_NOTE,
         filtros: {
           incluirTasasCero,
           incluirValoresAtipicos,

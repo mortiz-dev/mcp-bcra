@@ -132,6 +132,7 @@ const plausibilityLimitSchema = z.object({
   grupo: z.string(),
   n: z.number().int().nonnegative(),
   escala: z.enum(["lineal", "logaritmica", "cota"]),
+  metodo: z.enum(["z-modificado", "iqr", "desviacion-media", "cota"]),
   mediana: z.number().finite().nullable(),
   mad: z.number().finite().nullable(),
   inferior: z.number().finite(),
@@ -146,6 +147,7 @@ const discardedRateSchema = z.object({
   campo: z.string(),
   valor: z.number().finite(),
   denominacion: z.string().nullable(),
+  denominacionInferida: z.boolean(),
   motivo: z.string(),
 });
 
@@ -160,6 +162,7 @@ const rankingRowSchema = z.object({
   tasas: z.record(z.string(), z.number()),
   contexto: z.record(z.string(), contextValueSchema),
   ofertasEntidad: z.number().int().positive().nullable(),
+  denominacionInferida: z.boolean(),
   atipico: z.boolean(),
 });
 
@@ -190,6 +193,7 @@ export const rankingResponseSchema = z.object({
   ofertasFueraDePlazo: z.number().int().nonnegative(),
   ofertasSinDenominacion: z.number().int().nonnegative(),
   ofertasOtraDenominacion: z.number().int().nonnegative(),
+  ofertasDenominacionInferida: z.number().int().nonnegative(),
   excluyeTasasCero: z.boolean(),
   excluyeValoresAtipicos: z.boolean(),
   notaDenominacion: z.string(),

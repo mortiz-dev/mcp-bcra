@@ -28,13 +28,26 @@ export const DAY_COUNT_BASIS = 365;
  * The low mode of fixed-term TEA (UVA and USD deposits near 0) stays
  * inside the linear fence on purpose.
  *
- * Hard annual-percent rails, applied after the z-score and also when the
- * sample is too small: plazos fijos [0, 150], loans [1, 10000], cards
- * [1, 2500]. Comparison is strict. Zeros are removed by the separate
- * zero filter before this step unless `incluirTasasCero` is set.
+ * Hard annual-percent rails, applied with the robust fence and also when
+ * the sample is too small: plazos fijos [0, 150], loans [1, 10000], cards
+ * [1, 2500]. A rate below the floor is out. A rate equal to the floor is
+ * also atípico when that floor is positive: USD prendario books sit on 1,
+ * and that bound is the lowest annual percent treated as a real offer.
+ * The plazo-fijo floor is 0, so a zero TEA is left to the zero filter
+ * and is removed before this step unless `incluirTasasCero` is set.
+ *
+ * When the modified z-score MAD is 0 on a sample of at least 8 rates, a
+ * tied mode has collapsed the MAD (peso mortgages). The fence then uses
+ * Tukey's IQR rule on the same scale, Q1 − 1.5·IQR to Q3 + 1.5·IQR. If the
+ * IQR is 0 as well, the scale is the mean absolute deviation from the
+ * median, converted to a MAD-equivalent with the normal-consistency ratio
+ * 0.6745 / sqrt(2/π), and the same 3.5 cutoff. Only a sample with no
+ * dispersion at all keeps the hard rails alone.
  */
 export const MODIFIED_Z_CUTOFF = 3.5;
 export const MAD_SIGMA_FACTOR = 0.6745;
+export const MEAN_AD_SIGMA_FACTOR = Math.sqrt(2 / Math.PI);
+export const TUKEY_IQR_FACTOR = 1.5;
 export const MIN_PLAUSIBILITY_SAMPLE = 8;
 
 export type SeriesSpec = {
@@ -113,6 +126,11 @@ export type RankedOffer = {
   fechaInformacion: string | null;
   campoOrden: string;
   atipico?: boolean;
+  /**
+   * True when `denominacion` was empty and the currency was read from
+   * the product name. Published text never sets this.
+   */
+  denominacionInferida?: boolean;
   tasas: Record<string, number>;
   contexto: Record<string, string | number | null>;
   sortKey: number;
@@ -368,10 +386,11 @@ export type ProductSpec = {
   plausibility: PlausibilitySpec;
   /**
    * `published`: only a non-empty denominacion selects the currency.
-   * Null does not mean pesos. `implicit-pesos`: the regime does not
-   * publish denominacion (credit cards), so the whole catalog is pesos.
+   * Null stays unclassified (loans). `infer-missing`: a null denominacion
+   * is read from the product name (fixed-term deposits). `implicit-pesos`:
+   * the regime does not publish denominacion (credit cards).
    */
-  denomination: "published" | "implicit-pesos";
+  denomination: "published" | "infer-missing" | "implicit-pesos";
 };
 
 export const PRODUCT_SPECS = {
@@ -387,9 +406,9 @@ export const PRODUCT_SPECS = {
       "montoMinimoInvertir",
     ],
     plausibility: { floor: 0, ceiling: 150, scale: "linear" },
-    denomination: "published",
+    denomination: "infer-missing",
     criterio:
-      "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5, y el PDF del régimen lista 30, 60, 90, 180 y 360. Esta tool no traduce el código. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
+      "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA. Si denominacion viene vacía, la moneda se infiere del nombre del producto y la fila lleva denominacionInferida true. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5, y el PDF del régimen lista 30, 60, 90, 180 y 360. Esta tool no traduce el código. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
   },
   prestamosPersonales: {
     rateFields: ["tasaEfectivaAnualMaxima", "costoFinancieroEfectivoTotalMaximo"],
@@ -739,11 +758,58 @@ export type DenominationSplit = {
   implicitaPesos: boolean;
 };
 
+const DOLLAR_NAME = /dolar|usd|u\$s/;
+const UVA_NAME = /uva/;
+
+/**
+ * Currency for a fixed-term row whose published `denominacion` is empty.
+ * The live catalog leaves that field null and puts the currency in
+ * `nombreCorto` / `nombreCompleto` (`PFUVA`, `pftrad180dusd`, `en dólares`).
+ * UVA is tested first. Dollar keywords are `dolar` (covers dólar/dólares),
+ * `usd`, and `u$s`. Anything else, including a euro deposit, is pesos.
+ * A published denominacion is never passed here.
+ */
+export const inferMissingDenomination = (
+  nombreCorto: string | null,
+  nombreCompleto: string | null,
+): CanonicalDenomination => {
+  const text = normalizeText(`${nombreCorto ?? ""} ${nombreCompleto ?? ""}`);
+  if (UVA_NAME.test(text)) {
+    return "uva";
+  }
+  if (DOLLAR_NAME.test(text)) {
+    return "dolares";
+  }
+  return "pesos";
+};
+
+const pushCanonical = (
+  split: DenominationSplit,
+  offer: RankedOffer,
+  kind: CanonicalDenomination | "sinDenominacion" | "otra",
+): void => {
+  if (kind === "sinDenominacion") {
+    split.sinDenominacion.push(offer);
+    return;
+  }
+  if (kind === "otra") {
+    const label = publishedDenomination(offer) ?? "otra";
+    const current = split.otras.get(label) ?? [];
+    current.push(offer);
+    split.otras.set(label, current);
+    return;
+  }
+  split[kind].push(offer);
+};
+
 export const splitByDenomination = (
   offers: readonly RankedOffer[],
-  policy: "published" | "implicit-pesos",
+  policy: "published" | "infer-missing" | "implicit-pesos",
 ): DenominationSplit => {
   if (policy === "implicit-pesos") {
+    for (const offer of offers) {
+      offer.denominacionInferida = false;
+    }
     return {
       pesos: [...offers],
       uva: [],
@@ -762,17 +828,18 @@ export const splitByDenomination = (
     implicitaPesos: false,
   };
   for (const offer of offers) {
-    const kind = canonicalDenomination(offer.contexto.denominacion);
-    if (kind === "sinDenominacion") {
-      split.sinDenominacion.push(offer);
-    } else if (kind === "otra") {
-      const label = publishedDenomination(offer) ?? "otra";
-      const current = split.otras.get(label) ?? [];
-      current.push(offer);
-      split.otras.set(label, current);
-    } else {
-      split[kind].push(offer);
+    const published = canonicalDenomination(offer.contexto.denominacion);
+    if (published === "sinDenominacion" && policy === "infer-missing") {
+      offer.denominacionInferida = true;
+      pushCanonical(
+        split,
+        offer,
+        inferMissingDenomination(offer.nombreCorto, offer.nombreCompleto),
+      );
+      continue;
     }
+    offer.denominacionInferida = false;
+    pushCanonical(split, offer, published);
   }
   return split;
 };
@@ -781,6 +848,7 @@ export type PlausibilityLimit = {
   grupo: string;
   n: number;
   escala: "lineal" | "logaritmica" | "cota";
+  metodo: "z-modificado" | "iqr" | "desviacion-media" | "cota";
   mediana: number | null;
   mad: number | null;
   inferior: number;
@@ -795,7 +863,20 @@ export type DiscardedRate = {
   campo: string;
   valor: number;
   denominacion: string | null;
+  denominacionInferida: boolean;
   motivo: string;
+};
+
+const quantile = (sorted: readonly number[], probability: number): number => {
+  if (sorted.length === 0) {
+    return 0;
+  }
+  const index = (sorted.length - 1) * probability;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const low = sorted[lower] ?? 0;
+  const high = sorted[upper] ?? low;
+  return low + (high - low) * (index - lower);
 };
 
 const boundsForGroup = (
@@ -807,6 +888,7 @@ const boundsForGroup = (
     grupo,
     n: values.length,
     escala: "cota",
+    metodo: "cota",
     mediana: null,
     mad: null,
     inferior: spec.floor,
@@ -816,27 +898,50 @@ const boundsForGroup = (
     return fallback;
   }
   const transformed =
-    spec.scale === "log" ? values.map((value) => Math.log(value)) : values;
+    spec.scale === "log" ? values.map((value) => Math.log(value)) : [...values];
   const center = medianOf(transformed);
-  const mad = medianOf(transformed.map((value) => Math.abs(value - center)));
+  const deviations = transformed.map((value) => Math.abs(value - center));
+  const mad = medianOf(deviations);
   const mediana = spec.scale === "log" ? Math.exp(center) : center;
-  if (mad === 0) {
-    return { ...fallback, mediana: roundTo(mediana, 4), mad: 0 };
-  }
-  const span = (MODIFIED_Z_CUTOFF / MAD_SIGMA_FACTOR) * mad;
-  const rawLower = center - span;
-  const rawUpper = center + span;
-  const inferior = spec.scale === "log" ? Math.exp(rawLower) : rawLower;
-  const superior = spec.scale === "log" ? Math.exp(rawUpper) : rawUpper;
-  return {
-    grupo,
-    n: values.length,
-    escala: spec.scale === "log" ? "logaritmica" : "lineal",
-    mediana: roundTo(mediana, 4),
-    mad: roundTo(mad, 4),
-    inferior: roundTo(Math.max(spec.floor, inferior), 4),
-    superior: roundTo(Math.min(spec.ceiling, superior), 4),
+  const escala = spec.scale === "log" ? "logaritmica" : "lineal";
+  const finish = (
+    metodo: PlausibilityLimit["metodo"],
+    dispersion: number,
+    rawLower: number,
+    rawUpper: number,
+  ): PlausibilityLimit => {
+    const inferior = spec.scale === "log" ? Math.exp(rawLower) : rawLower;
+    const superior = spec.scale === "log" ? Math.exp(rawUpper) : rawUpper;
+    return {
+      grupo,
+      n: values.length,
+      escala,
+      metodo,
+      mediana: roundTo(mediana, 4),
+      mad: roundTo(dispersion, 4),
+      inferior: roundTo(Math.max(spec.floor, inferior), 4),
+      superior: roundTo(Math.min(spec.ceiling, superior), 4),
+    };
   };
+  if (mad > 0) {
+    const span = (MODIFIED_Z_CUTOFF / MAD_SIGMA_FACTOR) * mad;
+    return finish("z-modificado", mad, center - span, center + span);
+  }
+  const sorted = [...transformed].sort((left, right) => left - right);
+  const quartile1 = quantile(sorted, 0.25);
+  const quartile3 = quantile(sorted, 0.75);
+  const iqr = quartile3 - quartile1;
+  if (iqr > 0) {
+    const span = TUKEY_IQR_FACTOR * iqr;
+    return finish("iqr", iqr, quartile1 - span, quartile3 + span);
+  }
+  const meanAd = deviations.reduce((sum, value) => sum + value, 0) / deviations.length;
+  if (meanAd > 0) {
+    const scaledMad = meanAd * (MAD_SIGMA_FACTOR / MEAN_AD_SIGMA_FACTOR);
+    const span = (MODIFIED_Z_CUTOFF / MAD_SIGMA_FACTOR) * scaledMad;
+    return finish("desviacion-media", meanAd, center - span, center + span);
+  }
+  return { ...fallback, mediana: roundTo(mediana, 4), mad: 0 };
 };
 
 const discardReason = (
@@ -844,16 +949,19 @@ const discardReason = (
   spec: PlausibilitySpec,
   limit: PlausibilityLimit,
 ): string | null => {
-  if (value >= limit.inferior && value <= limit.superior) {
-    return null;
-  }
   if (value < spec.floor) {
     return `${value} está por debajo de la cota mínima ${spec.floor}`;
+  }
+  if (spec.floor > 0 && value === spec.floor) {
+    return `${value} está en la cota mínima ${spec.floor} y se trata como atípico`;
   }
   if (value > spec.ceiling) {
     return `${value} está por encima de la cota máxima ${spec.ceiling}`;
   }
-  const where = `escala ${limit.escala}, grupo ${limit.grupo}, mediana ${limit.mediana}, MAD ${limit.mad}, z modificado > ${MODIFIED_Z_CUTOFF}`;
+  if (value >= limit.inferior && value <= limit.superior) {
+    return null;
+  }
+  const where = `escala ${limit.escala}, método ${limit.metodo}, grupo ${limit.grupo}, mediana ${limit.mediana}, dispersión ${limit.mad}`;
   if (value < limit.inferior) {
     return `${value} está por debajo del piso ${limit.inferior} (${where})`;
   }
@@ -902,6 +1010,7 @@ export const partitionByPlausibility = (
         campo: offer.campoOrden,
         valor: offer.sortKey,
         denominacion: publishedDenomination(offer),
+        denominacionInferida: offer.denominacionInferida === true,
         motivo,
       });
     }

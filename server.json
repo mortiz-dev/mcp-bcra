@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.mortiz-dev/mcp-bcra",
   "title": "BCRA MCP",
-  "description": "Servidor MCP de solo lectura para las APIs públicas del BCRA.",
+  "description": "MCP de solo lectura: tasas, plazo fijo, dólar oficial e inflación CER del BCRA.",
   "repository": {
     "url": "https://github.com/mortiz-dev/mcp-bcra",
     "source": "github",

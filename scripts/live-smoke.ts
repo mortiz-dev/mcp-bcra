@@ -2,6 +2,8 @@ import { createAnalisisApi } from "../src/domains/analisis/api.js";
 import { createBcraHttpClient } from "../src/shared/http/bcraClient.js";
 import { parseBcraResponse } from "../src/shared/http/responseSchema.js";
 
+// Full Transparencia catalogs often need more than the 15s default.
+process.env.BCRA_HTTP_TIMEOUT_MS ??= "45000";
 const client = createBcraHttpClient();
 const checks = [
   ["entities", "/cheques/v1.0/entidades", undefined],
@@ -55,7 +57,7 @@ for (const producto of [
     const top = slice.resultados
       .map(
         (row) =>
-          `${row.posicion}:${row.codigoEntidad}:${row.tasas[row.campoOrden]}:${String(row.contexto.denominacion ?? "")}`,
+          `${row.posicion}:${row.codigoEntidad}:${row.tasas[row.campoOrden]}:${row.denominacionInferida ? "inferida" : "publicada"}:${row.nombreCorto ?? ""}`,
       )
       .join(" | ");
     const bounds = slice.limitesPlausibilidad
