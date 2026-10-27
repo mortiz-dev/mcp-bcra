@@ -6,6 +6,7 @@
 - Added answer-oriented tools for Transparencia rate rankings, the ex-post real rate of a fixed-term deposit, and a daily macro snapshot. Existing tool contracts are unchanged.
 - Rankings drop null and zero sort rates by default. Fixed-term rankings can filter the published `plazoMinimoInvertirDias` integer; that value is not a day count and is not translated. The macro snapshot reports observation age on every indicator. Policy-rate series 160 stays in place and is documented as discontinued upstream.
 - Rankings also drop rates outside a per-response plausibility interval (modified z-score 3.5, by published currency, log scale for loan CFT) and list them in `valoresDescartados`. `incluirValoresAtipicos` puts them back with `atipico: true`.
+- Rankings stay inside one published denomination. The default is pesos (`Pesos`). `denominacion` accepts `pesos`, `uva`, `dolares`, or `todas`, and `todas` returns a separate ordered list per denomination. Rows with a missing denomination are excluded from those buckets and counted; the live fixed-term catalog leaves the field null, so those rows are not treated as pesos. Credit cards publish no denomination and stay an implicit peso ranking.
 
 ## 2.0.0 — 2026-07-31
 

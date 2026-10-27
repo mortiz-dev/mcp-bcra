@@ -15,6 +15,7 @@ export const rankingProductSchema = z.enum([
 
 export const rankingModeSchema = z.enum(["entidad", "oferta"]);
 export const rankingOrderSchema = z.enum(["asc", "desc"]);
+export const rankingDenominationSchema = z.enum(["pesos", "uva", "dolares", "todas"]);
 
 const daysBetweenDates = (desde: string, hasta: string): number => {
   const start = Date.parse(`${desde}T00:00:00Z`);
@@ -33,6 +34,7 @@ export const rankingInputSchema = z
     limit: z.number().int().safe().min(1).max(500).default(100),
     incluirTasasCero: z.boolean().default(false),
     incluirValoresAtipicos: z.boolean().default(false),
+    denominacion: rankingDenominationSchema.default("pesos"),
     plazoMinimoInvertirDesde: rankingTermDays.optional(),
     plazoMinimoInvertirHasta: rankingTermDays.optional(),
     ...localeInput,
@@ -126,6 +128,51 @@ const observationSchema = z.object({
 
 const contextValueSchema = z.union([z.string(), z.number(), z.null()]);
 
+const plausibilityLimitSchema = z.object({
+  grupo: z.string(),
+  n: z.number().int().nonnegative(),
+  escala: z.enum(["lineal", "logaritmica", "cota"]),
+  mediana: z.number().finite().nullable(),
+  mad: z.number().finite().nullable(),
+  inferior: z.number().finite(),
+  superior: z.number().finite(),
+});
+
+const discardedRateSchema = z.object({
+  codigoEntidad: z.number().int().positive(),
+  descripcionEntidad: z.string(),
+  nombreCorto: z.string().nullable(),
+  nombreCompleto: z.string().nullable(),
+  campo: z.string(),
+  valor: z.number().finite(),
+  denominacion: z.string().nullable(),
+  motivo: z.string(),
+});
+
+const rankingRowSchema = z.object({
+  posicion: z.number().int().positive(),
+  codigoEntidad: z.number().int().positive(),
+  descripcionEntidad: z.string(),
+  nombreCorto: z.string().nullable(),
+  nombreCompleto: z.string().nullable(),
+  fechaInformacion: z.string().nullable(),
+  campoOrden: z.string(),
+  tasas: z.record(z.string(), z.number()),
+  contexto: z.record(z.string(), contextValueSchema),
+  ofertasEntidad: z.number().int().positive().nullable(),
+  atipico: z.boolean(),
+});
+
+const rankingSliceSchema = z.object({
+  denominacion: z.string(),
+  implicita: z.boolean(),
+  total: z.number().int().nonnegative(),
+  truncado: z.boolean(),
+  limitesPlausibilidad: z.array(plausibilityLimitSchema),
+  valoresDescartados: z.array(discardedRateSchema),
+  resultados: z.array(rankingRowSchema),
+});
+
 export const rankingResponseSchema = z.object({
   producto: rankingProductSchema,
   modo: rankingModeSchema,
@@ -141,54 +188,24 @@ export const rankingResponseSchema = z.object({
   ofertasSinTasa: z.number().int().nonnegative(),
   ofertasTasaCero: z.number().int().nonnegative(),
   ofertasFueraDePlazo: z.number().int().nonnegative(),
+  ofertasSinDenominacion: z.number().int().nonnegative(),
+  ofertasOtraDenominacion: z.number().int().nonnegative(),
   excluyeTasasCero: z.boolean(),
   excluyeValoresAtipicos: z.boolean(),
+  notaDenominacion: z.string(),
   filtros: z.object({
     incluirTasasCero: z.boolean(),
     incluirValoresAtipicos: z.boolean(),
+    denominacion: rankingDenominationSchema,
     plazoMinimoInvertirDesde: z.number().int().nonnegative().nullable(),
     plazoMinimoInvertirHasta: z.number().int().nonnegative().nullable(),
   }),
-  limitesPlausibilidad: z.array(
-    z.object({
-      grupo: z.string(),
-      n: z.number().int().nonnegative(),
-      escala: z.enum(["lineal", "logaritmica", "cota"]),
-      mediana: z.number().finite().nullable(),
-      mad: z.number().finite().nullable(),
-      inferior: z.number().finite(),
-      superior: z.number().finite(),
-    }),
-  ),
-  valoresDescartados: z.array(
-    z.object({
-      codigoEntidad: z.number().int().positive(),
-      descripcionEntidad: z.string(),
-      nombreCorto: z.string().nullable(),
-      nombreCompleto: z.string().nullable(),
-      campo: z.string(),
-      valor: z.number().finite(),
-      denominacion: z.string().nullable(),
-      motivo: z.string(),
-    }),
-  ),
+  rankings: z.array(rankingSliceSchema),
+  limitesPlausibilidad: z.array(plausibilityLimitSchema),
+  valoresDescartados: z.array(discardedRateSchema),
   total: z.number().int().nonnegative(),
   truncado: z.boolean(),
-  resultados: z.array(
-    z.object({
-      posicion: z.number().int().positive(),
-      codigoEntidad: z.number().int().positive(),
-      descripcionEntidad: z.string(),
-      nombreCorto: z.string().nullable(),
-      nombreCompleto: z.string().nullable(),
-      fechaInformacion: z.string().nullable(),
-      campoOrden: z.string(),
-      tasas: z.record(z.string(), z.number()),
-      contexto: z.record(z.string(), contextValueSchema),
-      ofertasEntidad: z.number().int().positive().nullable(),
-      atipico: z.boolean(),
-    }),
-  ),
+  resultados: z.array(rankingRowSchema),
 });
 
 const seriesIdentitySchema = z.object({

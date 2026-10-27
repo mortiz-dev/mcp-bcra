@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createAnalisisApi } from "../src/domains/analisis/api.js";
 import {
   addDays,
+  canonicalDenomination,
   computeRealRate,
   daysBetween,
   PRODUCT_SPECS,
   partitionByPlausibility,
   type RankedOffer,
+  splitByDenomination,
   variation,
 } from "../src/domains/analisis/compute.js";
 import {
@@ -90,6 +92,7 @@ const depositOffers = [
     tasaEfectivaAnualMinima: 0,
     canalConstitucion: "Home banking",
     plazoMinimoInvertirDias: 90,
+    denominacion: "UVA",
   },
   {
     codigoEntidad: 11,
@@ -100,6 +103,7 @@ const depositOffers = [
     tasaEfectivaAnualMinima: 30,
     canalConstitucion: "Sucursal",
     plazoMinimoInvertirDias: 30,
+    denominacion: "Pesos",
   },
   {
     codigoEntidad: 14,
@@ -333,6 +337,68 @@ describe("ranking plausibility", () => {
     expect(result.discarded.map((row) => row.valor)).toEqual([500]);
     expect(result.discarded[0]?.motivo).toContain("cota máxima");
   });
+
+  it("shares one fence when the caller names the denomination", () => {
+    const offers = [10, 11, 12, 13, 14].map((rate, index) =>
+      rankedOffer(
+        index + 1,
+        rate,
+        "costoFinancieroEfectivoTotalMaximo",
+        index % 2 === 0 ? "Dólares estadounidenses" : "Dolares estadounidenses",
+      ),
+    );
+    offers.push(
+      rankedOffer(
+        9,
+        0.5,
+        "costoFinancieroEfectivoTotalMaximo",
+        "Dólares estadounidenses",
+      ),
+    );
+    const result = partitionByPlausibility(
+      offers,
+      PRODUCT_SPECS.prestamosPersonales.plausibility,
+      () => "dolares",
+    );
+    expect(result.limits.map((limit) => limit.grupo)).toEqual(["dolares"]);
+    expect(result.discarded[0]?.denominacion).toBe("Dólares estadounidenses");
+    expect(result.discarded[0]?.motivo).toContain("cota mínima");
+  });
+});
+
+describe("denomination split", () => {
+  it("keeps published currencies apart and does not treat a blank as pesos", () => {
+    expect(canonicalDenomination("Pesos")).toBe("pesos");
+    expect(canonicalDenomination("UVA")).toBe("uva");
+    expect(canonicalDenomination("Dólares estadounidenses")).toBe("dolares");
+    expect(canonicalDenomination("Dolares estadounidenses")).toBe("dolares");
+    expect(canonicalDenomination("  ")).toBe("sinDenominacion");
+    expect(canonicalDenomination(null)).toBe("sinDenominacion");
+    expect(canonicalDenomination("Euros")).toBe("otra");
+    expect(canonicalDenomination("UVI")).toBe("otra");
+
+    const offers = [
+      rankedOffer(1, 20, "tasaEfectivaAnualMinima", "Pesos"),
+      rankedOffer(2, 1, "tasaEfectivaAnualMinima", "UVA"),
+      rankedOffer(3, 2, "tasaEfectivaAnualMinima", "Dólares estadounidenses"),
+      rankedOffer(4, 3, "tasaEfectivaAnualMinima", "Dolares estadounidenses"),
+      rankedOffer(5, 4, "tasaEfectivaAnualMinima"),
+      rankedOffer(6, 5, "tasaEfectivaAnualMinima", "Euros"),
+    ];
+    const split = splitByDenomination(offers, "published");
+    expect(split.implicitaPesos).toBe(false);
+    expect(split.pesos.map((offer) => offer.codigoEntidad)).toEqual([1]);
+    expect(split.uva.map((offer) => offer.codigoEntidad)).toEqual([2]);
+    expect(split.dolares.map((offer) => offer.codigoEntidad)).toEqual([3, 4]);
+    expect(split.sinDenominacion.map((offer) => offer.codigoEntidad)).toEqual([5]);
+    expect(split.otras.get("Euros")?.map((offer) => offer.codigoEntidad)).toEqual([6]);
+
+    const cards = splitByDenomination(offers, "implicit-pesos");
+    expect(cards.implicitaPesos).toBe(true);
+    expect(cards.pesos).toHaveLength(offers.length);
+    expect(cards.sinDenominacion).toEqual([]);
+    expect(cards.uva).toEqual([]);
+  });
 });
 
 describe("analisis computations", () => {
@@ -370,8 +436,10 @@ describe("analisis API", () => {
       ofertasTasaCero: 1,
       ofertasFueraDePlazo: 0,
       excluyeTasasCero: true,
+      ofertasSinDenominacion: 0,
       filtros: {
         incluirTasasCero: false,
+        denominacion: "pesos",
         plazoMinimoInvertirDesde: null,
         plazoMinimoInvertirHasta: null,
       },
@@ -415,6 +483,7 @@ describe("analisis API", () => {
       producto: "plazosFijos",
       buscar: "uva",
       modo: "oferta",
+      denominacion: "uva",
       incluirTasasCero: true,
       limit: 1,
     });
@@ -436,10 +505,7 @@ describe("analisis API", () => {
         row.tasas.costoFinancieroEfectivoTotalMaximo,
         row.ofertasEntidad,
       ]),
-    ).toEqual([
-      [11, "costoFinancieroEfectivoTotalMaximo", 50, 1],
-      [7, "costoFinancieroEfectivoTotalMaximo", 100, 2],
-    ]);
+    ).toEqual([[7, "costoFinancieroEfectivoTotalMaximo", 100, 2]]);
     expect(loans.valoresDescartados.map((row) => row.valor)).toEqual([0.33]);
     expect(loans.valoresDescartados[0]?.motivo).toContain("cota mínima");
     expect(loans.resultados.every((row) => row.atipico === false)).toBe(true);
@@ -454,10 +520,18 @@ describe("analisis API", () => {
     expect(truncated.total).toBe(2);
     expect(truncated.resultados[0]?.tasas.tasaEfectivaAnualMinima).toBe(21.01);
 
+    const uvaLoans = await api.rankRates({
+      producto: "prestamosPersonales",
+      denominacion: "uva",
+    });
+    expect(uvaLoans.resultados.map((row) => row.codigoEntidad)).toEqual([11]);
+    expect(uvaLoans.rankings[0]?.denominacion).toBe("uva");
+
     const zeroFirst = await api.rankRates({
       producto: "plazosFijos",
       modo: "oferta",
       orden: "asc",
+      denominacion: "uva",
       incluirTasasCero: true,
       limit: 1,
     });
@@ -475,6 +549,7 @@ describe("analisis API", () => {
         tasaEfectivaAnualMinima: 97.08,
         plazoMinimoInvertirDias: 1,
         canalConstitucion: "Ventanilla",
+        denominacion: "Pesos",
       },
       {
         codigoEntidad: 11,
@@ -484,6 +559,7 @@ describe("analisis API", () => {
         fechaInformacion: "2026-10-21",
         tasaEfectivaAnualMinima: 30,
         plazoMinimoInvertirDias: 30,
+        denominacion: "Pesos",
       },
       {
         codigoEntidad: 7,
@@ -492,6 +568,7 @@ describe("analisis API", () => {
         nombreCompleto: "SIN PLAZO",
         fechaInformacion: "2026-10-21",
         tasaEfectivaAnualMinima: 40,
+        denominacion: "Pesos",
       },
     ];
     const { client } = mockClient(undefined, termOffers);
@@ -521,6 +598,7 @@ describe("analisis API", () => {
 
     expect(rankingInputSchema.parse({ producto: "plazosFijos" })).toMatchObject({
       incluirTasasCero: false,
+      denominacion: "pesos",
       modo: "entidad",
       limit: 100,
     });
@@ -562,6 +640,7 @@ describe("analisis API", () => {
       fechaInformacion: "2026-10-21",
       tasaEfectivaAnualMinima: rate,
       plazoMinimoInvertirDias: 1,
+      denominacion: "Pesos",
     }));
     offers.push({
       codigoEntidad: 72614,
@@ -571,6 +650,7 @@ describe("analisis API", () => {
       fechaInformacion: "2026-10-05",
       tasaEfectivaAnualMinima: 97.08,
       plazoMinimoInvertirDias: 1,
+      denominacion: "Pesos",
     });
     const { client } = mockClient(undefined, offers);
     const api = createAnalisisApi(client, { now: () => NOW });
@@ -602,6 +682,167 @@ describe("analisis API", () => {
         .filter((row) => row.codigoEntidad !== 72614)
         .every((row) => row.atipico === false),
     ).toBe(true);
+  });
+
+  it("ranks one denomination and keeps todas in separate lists", async () => {
+    const mixed = [
+      {
+        codigoEntidad: 1,
+        descripcionEntidad: "PESOS",
+        nombreCorto: "PESOS",
+        nombreCompleto: "PESOS",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 80,
+        denominacion: "Pesos",
+      },
+      {
+        codigoEntidad: 2,
+        descripcionEntidad: "UVA",
+        nombreCorto: "UVA",
+        nombreCompleto: "UVA",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 20,
+        denominacion: "UVA",
+      },
+      {
+        codigoEntidad: 3,
+        descripcionEntidad: "USD ACENTO",
+        nombreCorto: "USD",
+        nombreCompleto: "USD",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 12,
+        denominacion: "Dólares estadounidenses",
+      },
+      {
+        codigoEntidad: 4,
+        descripcionEntidad: "USD SIN ACENTO",
+        nombreCorto: "USD",
+        nombreCompleto: "USD",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 11,
+        denominacion: "Dolares estadounidenses",
+      },
+      {
+        codigoEntidad: 5,
+        descripcionEntidad: "SIN DATO",
+        nombreCorto: "SIN",
+        nombreCompleto: "SIN",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 40,
+      },
+      {
+        codigoEntidad: 6,
+        descripcionEntidad: "EUROS",
+        nombreCorto: "EUR",
+        nombreCompleto: "EUR",
+        fechaInformacion: "2026-10-01",
+        costoFinancieroEfectivoTotalMaximo: 9,
+        denominacion: "Euros",
+      },
+    ];
+    const getJson = vi.fn(async (path: string) => {
+      if (path.includes("Prestamos/Personales")) {
+        return { status: 200, results: mixed };
+      }
+      if (path.includes("Tarjetas")) {
+        return {
+          status: 200,
+          results: [
+            {
+              codigoEntidad: 14,
+              descripcionEntidad: "TARJETA",
+              nombreCorto: "VISA",
+              nombreCompleto: "VISA",
+              fechaInformacion: "2026-10-01",
+              tasaEfectivaAnualMaximaFinanciacion: 40,
+            },
+            {
+              codigoEntidad: 15,
+              descripcionEntidad: "TARJETA B",
+              nombreCorto: "MASTER",
+              nombreCompleto: "MASTER",
+              fechaInformacion: "2026-10-01",
+              tasaEfectivaAnualMaximaFinanciacion: 30,
+            },
+          ],
+        };
+      }
+      return { status: 200, results: [] };
+    });
+    const api = createAnalisisApi({ getJson }, { now: () => NOW });
+
+    const pesos = await api.rankRates({ producto: "prestamosPersonales" });
+    expect(rankingResponseSchema.parse(pesos).filtros.denominacion).toBe("pesos");
+    expect(pesos.resultados.map((row) => row.codigoEntidad)).toEqual([1]);
+    expect(pesos.ofertasSinDenominacion).toBe(1);
+    expect(pesos.ofertasOtraDenominacion).toBe(1);
+    expect(pesos.notaDenominacion).toContain("no se trata como pesos");
+    expect(pesos.rankings.map((slice) => slice.denominacion)).toEqual(["pesos"]);
+
+    const dollars = await api.rankRates({
+      producto: "prestamosPersonales",
+      denominacion: "dolares",
+    });
+    expect(dollars.resultados.map((row) => row.codigoEntidad)).toEqual([4, 3]);
+    expect(dollars.limitesPlausibilidad.map((limit) => limit.grupo)).toEqual([
+      "dolares",
+    ]);
+    expect(dollars.rankings[0]?.resultados.map((row) => row.codigoEntidad)).toEqual([
+      4, 3,
+    ]);
+
+    const all = await api.rankRates({
+      producto: "prestamosPersonales",
+      denominacion: "todas",
+    });
+    expect(rankingResponseSchema.parse(all).resultados).toEqual([]);
+    expect(all.total).toBe(0);
+    expect(all.valoresDescartados).toEqual([]);
+    expect(all.rankings.map((slice) => slice.denominacion)).toEqual([
+      "pesos",
+      "uva",
+      "dolares",
+      "sinDenominacion",
+      "Euros",
+    ]);
+    expect(
+      all.rankings.find((slice) => slice.denominacion === "pesos")?.resultados,
+    ).toEqual([expect.objectContaining({ codigoEntidad: 1 })]);
+    expect(
+      all.rankings.find((slice) => slice.denominacion === "uva")?.resultados,
+    ).toEqual([expect.objectContaining({ codigoEntidad: 2 })]);
+    expect(
+      all.rankings.find((slice) => slice.denominacion === "sinDenominacion")
+        ?.resultados,
+    ).toEqual([expect.objectContaining({ codigoEntidad: 5 })]);
+    expect(
+      all.rankings.find((slice) => slice.denominacion === "Euros")?.resultados,
+    ).toEqual([expect.objectContaining({ codigoEntidad: 6 })]);
+
+    const cards = await api.rankRates({ producto: "tarjetas" });
+    expect(cards.notaDenominacion).toContain("no publican denominacion");
+    expect(cards.rankings[0]?.implicita).toBe(true);
+    expect(cards.ofertasSinDenominacion).toBe(0);
+    expect(cards.resultados.map((row) => row.codigoEntidad)).toEqual([15, 14]);
+
+    const cardsUva = await api.rankRates({ producto: "tarjetas", denominacion: "uva" });
+    expect(cardsUva.resultados).toEqual([]);
+    expect(cardsUva.rankings[0]?.denominacion).toBe("uva");
+    expect(cardsUva.rankings[0]?.implicita).toBe(false);
+
+    const cardsAll = await api.rankRates({
+      producto: "tarjetas",
+      denominacion: "todas",
+    });
+    expect(cardsAll.resultados).toEqual([]);
+    expect(cardsAll.rankings.map((slice) => [slice.denominacion, slice.total])).toEqual(
+      [
+        ["pesos", 2],
+        ["uva", 0],
+        ["dolares", 0],
+      ],
+    );
+    expect(cardsAll.rankings[0]?.implicita).toBe(true);
   });
 
   it("rejects a transparency payload without entity identity", async () => {

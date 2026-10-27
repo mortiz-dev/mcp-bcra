@@ -43,39 +43,54 @@ for (const producto of [
   "prestamosPrendarios",
   "tarjetas",
 ] as const) {
-  const ranking = await analisis.rankRates({ producto, limit: 3 });
-  const top = ranking.resultados
-    .map(
-      (row) =>
-        `${row.posicion}:${row.codigoEntidad}:${row.tasas[row.campoOrden]}:${String(row.contexto.denominacion ?? "")}`,
-    )
-    .join(" | ");
-  const bounds = ranking.limitesPlausibilidad
-    .map(
-      (limit) =>
-        `${limit.grupo} n=${limit.n} ${limit.escala} [${limit.inferior},${limit.superior}]`,
-    )
-    .join(" ; ");
-  const discarded = ranking.valoresDescartados
-    .slice(0, 8)
-    .map((row) => `${row.codigoEntidad}:${row.valor}`)
-    .join(",");
+  const ranking = await analisis.rankRates({
+    producto,
+    limit: 3,
+    denominacion: "todas",
+  });
   console.log(
-    `Live smoke OK: ranking ${producto} total=${ranking.total} ceros=${ranking.ofertasTasaCero} descartados=${ranking.valoresDescartados.length} top=${top}`,
+    `Live smoke OK: ranking ${producto} ceros=${ranking.ofertasTasaCero} sinDenominacion=${ranking.ofertasSinDenominacion} otra=${ranking.ofertasOtraDenominacion}`,
   );
-  console.log(`Live smoke bounds ${producto}: ${bounds}`);
-  console.log(
-    `Live smoke discarded ${producto}: ${discarded}${ranking.valoresDescartados.length > 8 ? ",..." : ""}`,
-  );
+  for (const slice of ranking.rankings) {
+    const top = slice.resultados
+      .map(
+        (row) =>
+          `${row.posicion}:${row.codigoEntidad}:${row.tasas[row.campoOrden]}:${String(row.contexto.denominacion ?? "")}`,
+      )
+      .join(" | ");
+    const bounds = slice.limitesPlausibilidad
+      .map(
+        (limit) =>
+          `${limit.grupo} n=${limit.n} ${limit.escala} [${limit.inferior},${limit.superior}]`,
+      )
+      .join(" ; ");
+    const discarded = slice.valoresDescartados
+      .slice(0, 8)
+      .map((row) => `${row.codigoEntidad}:${row.valor}:${row.denominacion ?? ""}`)
+      .join(",");
+    console.log(
+      `Live smoke slice ${producto} ${slice.denominacion} implicita=${slice.implicita} total=${slice.total} descartados=${slice.valoresDescartados.length} top=${top}`,
+    );
+    console.log(`Live smoke bounds ${producto} ${slice.denominacion}: ${bounds}`);
+    console.log(
+      `Live smoke discarded ${producto} ${slice.denominacion}: ${discarded}${slice.valoresDescartados.length > 8 ? ",..." : ""}`,
+    );
+  }
 }
 
 const comparableDeposits = await analisis.rankRates({
   producto: "plazosFijos",
+  denominacion: "todas",
   plazoMinimoInvertirDesde: 1,
   plazoMinimoInvertirHasta: 1,
   limit: 1,
 });
-const comparableTop = comparableDeposits.resultados[0];
+const comparableSlices = comparableDeposits.rankings
+  .map((slice) => {
+    const top = slice.resultados[0];
+    return `${slice.denominacion} total=${slice.total} top=${top?.codigoEntidad ?? "none"} plazo=${String(top?.contexto.plazoMinimoInvertirDias ?? "")} tasa=${top ? JSON.stringify(top.tasas) : "{}"}`;
+  })
+  .join(" || ");
 console.log(
-  `Live smoke OK: ranking plazosFijos plazo=1 total=${comparableDeposits.total} fuera=${comparableDeposits.ofertasFueraDePlazo} top=${comparableTop?.codigoEntidad ?? "none"} plazo=${String(comparableTop?.contexto.plazoMinimoInvertirDias ?? "")} tasa=${comparableTop ? JSON.stringify(comparableTop.tasas) : "{}"}`,
+  `Live smoke OK: ranking plazosFijos plazo=1 fuera=${comparableDeposits.ofertasFueraDePlazo} sinDenominacion=${comparableDeposits.ofertasSinDenominacion} ${comparableSlices}`,
 );

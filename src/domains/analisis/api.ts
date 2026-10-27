@@ -20,6 +20,7 @@ import {
   POLICY_STALE_DAYS,
   PRODUCT_SPECS,
   partitionByPlausibility,
+  type RankedOffer,
   REAL_RATE_FORMULA,
   rankOffers,
   readObservations,
@@ -27,6 +28,7 @@ import {
   readVariable,
   SERIES,
   type SeriesSpec,
+  splitByDenomination,
   utcDate,
   type VariableMeta,
   variation,
@@ -36,6 +38,12 @@ import type {
   rankingProductSchema,
   realRateInputSchema,
 } from "./schemas.js";
+
+const PUBLISHED_DENOMINATION_NOTE =
+  "Por defecto se rankea solo la denominación publicada «Pesos». uva corresponde al texto «UVA». dolares corresponde a «Dólares estadounidenses» y a «Dolares estadounidenses» (sin tilde, como publican los hipotecarios). Una fila sin denominacion no se trata como pesos: el catálogo vivo de plazos fijos deja el campo nulo en todas las filas y esta tool no infiere la moneda del nombre del producto. Esas filas se cuentan en ofertasSinDenominacion y quedan fuera de pesos, uva y dolares. denominacion todas arma un ranking por moneda en rankings y deja resultados vacío, sin mezclar monedas en una sola lista. Si hay filas sin denominación, todas agrega el corte sinDenominacion. Otras etiquetas publicadas (Euros o UVI, si aparecen) van en su propio corte y se cuentan en ofertasOtraDenominacion.";
+
+const CARD_DENOMINATION_NOTE =
+  "Las tarjetas no publican denominacion, ni en la API ni en el PDF del régimen. Todo el catálogo se rankea como pesos con implicita true. Pedir uva o dolares devuelve un corte vacío y no reclasifica las tarjetas. denominacion todas mantiene los cortes separados; el de pesos trae el catálogo.";
 
 const REAL_RATE_NOTE =
   "La inflación del período es la variación del CER (serie 30), no la inflación mensual (serie 27) ni la interanual (serie 28): esas series son porcentajes de un mes o de doce meses y no se alinean a un plazo arbitrario. Si no se informa TNA, se usa la serie 12 (depósitos a 30 días en entidades financieras, nominal anual) en la fecha de inicio o el día hábil anterior publicado. No se usa BADLAR (serie 7) ni TAMAR (serie 44), que son tasas mayoristas. El interés se calcula en forma simple con base 365. No es asesoramiento financiero.";
@@ -177,34 +185,107 @@ export const createAnalisisApi = (
       const limit = params.limit ?? 100;
       const incluirTasasCero = params.incluirTasasCero ?? false;
       const incluirValoresAtipicos = params.incluirValoresAtipicos ?? false;
+      const denominacion = params.denominacion ?? "pesos";
       const filtered = applyRankingFilters(parsed.offers, {
         incluirTasasCero,
         plazoDesde: plazoMinimoInvertirDesde,
         plazoHasta: plazoMinimoInvertirHasta,
       });
       const searched = offersMatchingSearch(filtered.offers, params.buscar);
-      const plausibility = partitionByPlausibility(searched, spec.plausibility);
-      const atypical = new Set(plausibility.outliers);
-      const tagged = searched.map((offer) => ({
-        ...offer,
-        atipico: atypical.has(offer),
-      }));
-      const rankable = incluirValoresAtipicos
-        ? tagged
-        : tagged.filter((offer) => !offer.atipico);
-      const { ranked, total } = rankOffers(rankable, {
-        modo,
-        orden,
-        sortField: spec.sortField,
-        limit,
-      });
+      const split = splitByDenomination(searched, spec.denomination);
+      const ofertasOtraDenominacion = [...split.otras.values()].reduce(
+        (count, rows) => count + rows.length,
+        0,
+      );
+      const rankSlice = (
+        label: string,
+        offers: readonly RankedOffer[],
+        implicita: boolean,
+      ) => {
+        const plausibility = partitionByPlausibility(
+          offers,
+          spec.plausibility,
+          () => label,
+        );
+        const atypical = new Set(plausibility.outliers);
+        const tagged = offers.map((offer) => ({
+          ...offer,
+          atipico: atypical.has(offer),
+        }));
+        const rankable = incluirValoresAtipicos
+          ? tagged
+          : tagged.filter((offer) => !offer.atipico);
+        const { ranked, total } = rankOffers(rankable, {
+          modo,
+          orden,
+          sortField: spec.sortField,
+          limit,
+        });
+        return {
+          denominacion: label,
+          implicita,
+          total,
+          truncado: total > ranked.length,
+          limitesPlausibilidad: plausibility.limits,
+          valoresDescartados: incluirValoresAtipicos ? [] : plausibility.discarded,
+          resultados: ranked.map((row, index) => ({
+            posicion: index + 1,
+            codigoEntidad: row.codigoEntidad,
+            descripcionEntidad: row.descripcionEntidad,
+            nombreCorto: row.nombreCorto,
+            nombreCompleto: row.nombreCompleto,
+            fechaInformacion: row.fechaInformacion,
+            campoOrden: row.campoOrden,
+            tasas: row.tasas,
+            contexto: row.contexto,
+            ofertasEntidad: row.ofertasEntidad,
+            atipico: row.atipico === true,
+          })),
+        };
+      };
+      const slices: Array<{
+        label: string;
+        offers: readonly RankedOffer[];
+        implicita: boolean;
+      }> =
+        denominacion === "todas"
+          ? [
+              { label: "pesos", offers: split.pesos, implicita: split.implicitaPesos },
+              { label: "uva", offers: split.uva, implicita: false },
+              { label: "dolares", offers: split.dolares, implicita: false },
+              ...(split.sinDenominacion.length > 0
+                ? [
+                    {
+                      label: "sinDenominacion",
+                      offers: split.sinDenominacion,
+                      implicita: false,
+                    },
+                  ]
+                : []),
+              ...[...split.otras.entries()]
+                .sort(([left], [right]) => left.localeCompare(right, "es"))
+                .map(([label, offers]) => ({ label, offers, implicita: false })),
+            ]
+          : denominacion === "pesos"
+            ? [{ label: "pesos", offers: split.pesos, implicita: split.implicitaPesos }]
+            : [
+                {
+                  label: denominacion,
+                  offers: split[denominacion],
+                  implicita: false,
+                },
+              ];
+      const rankings = slices.map((slice) =>
+        rankSlice(slice.label, slice.offers, slice.implicita),
+      );
+      const primary = denominacion === "todas" ? null : (rankings[0] ?? null);
       return {
         producto,
         modo,
         orden,
         campoOrden: spec.sortField,
         camposTasa: [...spec.rateFields],
-        criterio: `${spec.criterio} Por defecto se apartan las tasas fuera del intervalo de plausibilidad de esta respuesta (z modificado 3.5, por denominación) y se listan en valoresDescartados. incluirValoresAtipicos las devuelve en el ranking con atipico true.`,
+        criterio: `${spec.criterio} Por defecto se rankea una sola denominación (pesos, el texto publicado «Pesos»; ver notaDenominacion). El intervalo de plausibilidad se calcula dentro de esa denominación (z modificado 3.5) y lo que queda afuera va a valoresDescartados. incluirValoresAtipicos lo devuelve en el ranking con atipico true.`,
         fuente: {
           api: "Transparencia v1.0",
           path: `/transparencia/v1.0/${transparenciaProductPaths[producto]}`,
@@ -213,31 +294,27 @@ export const createAnalisisApi = (
         ofertasSinTasa: parsed.sinTasa,
         ofertasTasaCero: filtered.ofertasTasaCero,
         ofertasFueraDePlazo: filtered.ofertasFueraDePlazo,
+        ofertasSinDenominacion: split.sinDenominacion.length,
+        ofertasOtraDenominacion,
         excluyeTasasCero: !incluirTasasCero,
         excluyeValoresAtipicos: !incluirValoresAtipicos,
+        notaDenominacion:
+          spec.denomination === "implicit-pesos"
+            ? CARD_DENOMINATION_NOTE
+            : PUBLISHED_DENOMINATION_NOTE,
         filtros: {
           incluirTasasCero,
           incluirValoresAtipicos,
+          denominacion,
           plazoMinimoInvertirDesde: plazoMinimoInvertirDesde ?? null,
           plazoMinimoInvertirHasta: plazoMinimoInvertirHasta ?? null,
         },
-        limitesPlausibilidad: plausibility.limits,
-        valoresDescartados: incluirValoresAtipicos ? [] : plausibility.discarded,
-        total,
-        truncado: total > ranked.length,
-        resultados: ranked.map((row, index) => ({
-          posicion: index + 1,
-          codigoEntidad: row.codigoEntidad,
-          descripcionEntidad: row.descripcionEntidad,
-          nombreCorto: row.nombreCorto,
-          nombreCompleto: row.nombreCompleto,
-          fechaInformacion: row.fechaInformacion,
-          campoOrden: row.campoOrden,
-          tasas: row.tasas,
-          contexto: row.contexto,
-          ofertasEntidad: row.ofertasEntidad,
-          atipico: row.atipico === true,
-        })),
+        rankings,
+        limitesPlausibilidad: primary?.limitesPlausibilidad ?? [],
+        valoresDescartados: primary?.valoresDescartados ?? [],
+        total: primary?.total ?? 0,
+        truncado: primary?.truncado ?? false,
+        resultados: primary?.resultados ?? [],
       };
     },
 

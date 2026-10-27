@@ -15,9 +15,11 @@ export const DAY_COUNT_BASIS = 365;
  *
  * Iglewicz and Hoaglin (1993) modified z-score: flag x when
  * |0.6745 * (x - median) / MAD| > 3.5. MAD is the median absolute
- * deviation. Groups are the published `denominacion`; rows without one
- * share a single group. A group with fewer than 8 positive rates, or
- * with MAD 0, skips the z-score and keeps only the hard floor/ceiling.
+ * deviation. The default group is the published `denominacion`; rows
+ * without one share a single group. The ranking API passes one canonical
+ * group per requested denomination, so accent variants share a fence.
+ * A group with fewer than 8 positive rates, or with MAD 0, skips the
+ * z-score and keeps only the hard floor/ceiling.
  *
  * Fixed-term TEA and card financing TEA use the raw percent scale, so a
  * high deposit rate is comparable to the center of the catalog. Loan CFT
@@ -364,6 +366,12 @@ export type ProductSpec = {
   contextFields: readonly string[];
   criterio: string;
   plausibility: PlausibilitySpec;
+  /**
+   * `published`: only a non-empty denominacion selects the currency.
+   * Null does not mean pesos. `implicit-pesos`: the regime does not
+   * publish denominacion (credit cards), so the whole catalog is pesos.
+   */
+  denomination: "published" | "implicit-pesos";
 };
 
 export const PRODUCT_SPECS = {
@@ -379,6 +387,7 @@ export const PRODUCT_SPECS = {
       "montoMinimoInvertir",
     ],
     plausibility: { floor: 0, ceiling: 150, scale: "linear" },
+    denomination: "published",
     criterio:
       "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5, y el PDF del régimen lista 30, 60, 90, 180 y 360. Esta tool no traduce el código. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
   },
@@ -395,6 +404,7 @@ export const PRODUCT_SPECS = {
       "denominacion",
     ],
     plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
+    denomination: "published",
     criterio:
       "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
@@ -411,8 +421,9 @@ export const PRODUCT_SPECS = {
       "denominacion",
     ],
     plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
+    denomination: "published",
     criterio:
-      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Pesos y UVA quedan en el mismo ranking: use buscar para separarlos. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
+      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero, dentro de una sola denominación. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
   prestamosPrendarios: {
     rateFields: ["tasaEfectivaAnualMaxima", "costoFinancieroEfectivoTotalMaximo"],
@@ -427,6 +438,7 @@ export const PRODUCT_SPECS = {
       "denominacion",
     ],
     plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
+    denomination: "published",
     criterio:
       "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
@@ -440,8 +452,9 @@ export const PRODUCT_SPECS = {
     defaultOrden: "asc",
     contextFields: ["segmento"],
     plausibility: { floor: 1, ceiling: 2_500, scale: "linear" },
+    denomination: "implicit-pesos",
     criterio:
-      "Se ordena por tasaEfectivaAnualMaximaFinanciacion y también se informa tasaEfectivaAnualMaximaAdelantoEfectivo. Esta API no publica un costo financiero total. Por defecto, menor tasa de financiación primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Esta respuesta no trae plazo ni tipo de entidad.",
+      "Se ordena por tasaEfectivaAnualMaximaFinanciacion y también se informa tasaEfectivaAnualMaximaAdelantoEfectivo. Esta API no publica un costo financiero total ni denominacion. Por defecto, menor tasa de financiación primero, y el catálogo entero se trata como pesos. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Esta respuesta no trae plazo ni tipo de entidad.",
   },
 } as const satisfies Record<string, ProductSpec>;
 
@@ -676,6 +689,94 @@ const groupLabel = (offer: RankedOffer): string => {
   return "sin denominacion";
 };
 
+export const publishedDenomination = (offer: RankedOffer): string | null => {
+  const value = offer.contexto.denominacion;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+};
+
+const foldDenomination = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+export type CanonicalDenomination = "pesos" | "uva" | "dolares";
+
+/**
+ * Maps a published Transparencia `denominacion` to a ranking bucket.
+ * Observed on 2026-10-27: "Pesos", "UVA", "Dólares estadounidenses",
+ * and "Dolares estadounidenses" (mortgages, no accent). Empty stays
+ * unclassified. Other labels (the regime PDF also names Euros and UVIs)
+ * stay `otra` and are never folded into pesos.
+ */
+export const canonicalDenomination = (
+  raw: unknown,
+): CanonicalDenomination | "sinDenominacion" | "otra" => {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return "sinDenominacion";
+  }
+  const folded = foldDenomination(raw);
+  if (folded === "pesos") {
+    return "pesos";
+  }
+  if (folded === "uva") {
+    return "uva";
+  }
+  if (folded === "dolares estadounidenses" || folded === "dolares") {
+    return "dolares";
+  }
+  return "otra";
+};
+
+export type DenominationSplit = {
+  pesos: RankedOffer[];
+  uva: RankedOffer[];
+  dolares: RankedOffer[];
+  sinDenominacion: RankedOffer[];
+  otras: Map<string, RankedOffer[]>;
+  implicitaPesos: boolean;
+};
+
+export const splitByDenomination = (
+  offers: readonly RankedOffer[],
+  policy: "published" | "implicit-pesos",
+): DenominationSplit => {
+  if (policy === "implicit-pesos") {
+    return {
+      pesos: [...offers],
+      uva: [],
+      dolares: [],
+      sinDenominacion: [],
+      otras: new Map(),
+      implicitaPesos: true,
+    };
+  }
+  const split: DenominationSplit = {
+    pesos: [],
+    uva: [],
+    dolares: [],
+    sinDenominacion: [],
+    otras: new Map(),
+    implicitaPesos: false,
+  };
+  for (const offer of offers) {
+    const kind = canonicalDenomination(offer.contexto.denominacion);
+    if (kind === "sinDenominacion") {
+      split.sinDenominacion.push(offer);
+    } else if (kind === "otra") {
+      const label = publishedDenomination(offer) ?? "otra";
+      const current = split.otras.get(label) ?? [];
+      current.push(offer);
+      split.otras.set(label, current);
+    } else {
+      split[kind].push(offer);
+    }
+  }
+  return split;
+};
+
 export type PlausibilityLimit = {
   grupo: string;
   n: number;
@@ -762,6 +863,7 @@ const discardReason = (
 export const partitionByPlausibility = (
   offers: readonly RankedOffer[],
   spec: PlausibilitySpec,
+  groupOf: (offer: RankedOffer) => string = groupLabel,
 ): {
   kept: RankedOffer[];
   outliers: RankedOffer[];
@@ -770,7 +872,7 @@ export const partitionByPlausibility = (
 } => {
   const groups = new Map<string, RankedOffer[]>();
   for (const offer of offers) {
-    const label = groupLabel(offer);
+    const label = groupOf(offer);
     const current = groups.get(label) ?? [];
     current.push(offer);
     groups.set(label, current);
@@ -792,7 +894,6 @@ export const partitionByPlausibility = (
         continue;
       }
       outliers.push(offer);
-      const denominacion = groupLabel(offer);
       discarded.push({
         codigoEntidad: offer.codigoEntidad,
         descripcionEntidad: offer.descripcionEntidad,
@@ -800,7 +901,7 @@ export const partitionByPlausibility = (
         nombreCompleto: offer.nombreCompleto,
         campo: offer.campoOrden,
         valor: offer.sortKey,
-        denominacion: denominacion === "sin denominacion" ? null : denominacion,
+        denominacion: publishedDenomination(offer),
         motivo,
       });
     }
