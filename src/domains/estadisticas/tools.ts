@@ -35,7 +35,7 @@ export const registerEstadisticasTools = (
     {
       title: "Historia de variable monetaria",
       description:
-        "Consulta la serie histórica de una variable monetaria del BCRA, con rango de fechas y paginación.",
+        "Úsala para la serie histórica de un indicador del BCRA (CER, inflación, tipo de cambio) por idVariable, con rango de fechas y paginación. Para una foto de hoy, preferí get-bcra-snapshot-macro.",
       inputSchema: varHistorySchema,
       dataSchema: estadisticasResponseSchema,
     },

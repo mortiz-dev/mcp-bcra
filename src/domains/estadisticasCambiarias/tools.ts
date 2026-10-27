@@ -32,7 +32,7 @@ export const registerEstadisticasCambiariasTools = (
     {
       title: "Cotizaciones cambiarias",
       description:
-        "Consulta las cotizaciones de monedas publicadas por el BCRA para una fecha opcional.",
+        "Úsala para la cotización oficial de una fecha. Consulta las cotizaciones de monedas publicadas por el BCRA. No es el dólar blue, el MEP ni el CCL.",
       inputSchema: fxQuotesSchema,
       dataSchema: estadisticasCambiariasResponseSchema,
     },

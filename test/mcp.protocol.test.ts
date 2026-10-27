@@ -1,6 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { addDays } from "../src/domains/analisis/compute.js";
 import createServer from "../src/server.js";
 import {
   type BcraHttpClient,
@@ -44,7 +45,10 @@ describe("MCP 2026-07-28 protocol", () => {
       "get-bcra-fx-quote-by-currency",
       "get-bcra-fx-quotes",
       "get-bcra-metodologia",
+      "get-bcra-ranking-tasas",
       "get-bcra-series-excel-catalog",
+      "get-bcra-snapshot-macro",
+      "get-bcra-tasa-real-plazo-fijo",
       "get-bcra-transparencia-producto",
       "get-bcra-var-hist",
       "get-bcra-variables",
@@ -85,7 +89,99 @@ describe("MCP 2026-07-28 protocol", () => {
   });
 
   it("executes the complete tool catalog through the real protocol", async () => {
-    const getJson = vi.fn().mockResolvedValue({ status: 200, results: [] });
+    const seriesCatalog: Record<
+      number,
+      {
+        descripcion: string;
+        categoria: string;
+        unidadExpresion: string;
+        ultFechaInformada: string;
+      }
+    > = {
+      1: {
+        descripcion: "Reservas internacionales",
+        categoria: "Principales Variables",
+        unidadExpresion: "En millones de USD",
+        ultFechaInformada: "2026-10-22",
+      },
+      5: {
+        descripcion: "Tipo de cambio mayorista de referencia",
+        categoria: "Principales Variables",
+        unidadExpresion: "Pesos argentinos por dólar estadounidense",
+        ultFechaInformada: "2026-10-26",
+      },
+      12: {
+        descripcion:
+          "Tasa de interés de depósitos a 30 días de plazo en entidades financieras",
+        categoria: "Principales Variables",
+        unidadExpresion: "En porcentaje nominal anual",
+        ultFechaInformada: "2026-10-23",
+      },
+      15: {
+        descripcion: "Base monetaria",
+        categoria: "Principales Variables",
+        unidadExpresion: "En millones de ARS",
+        ultFechaInformada: "2026-10-22",
+      },
+      30: {
+        descripcion: "Coeficiente de estabilización de referencia (base 2.2.02=1)",
+        categoria: "Principales Variables",
+        unidadExpresion: "Índice base 2.2.02=1",
+        ultFechaInformada: "2026-10-26",
+      },
+      160: {
+        descripcion: "Tasas de interés de política monetaria",
+        categoria: "Series.xlsm",
+        unidadExpresion: "En porcentaje nominal anual",
+        ultFechaInformada: "2025-07-10",
+      },
+    };
+    const getJson = vi.fn(
+      async (
+        path: string,
+        query?: Record<string, string | number | boolean | undefined>,
+      ) => {
+        if (path === "/estadisticas/v4.0/Monetarias") {
+          const id = query?.idVariable;
+          const row = typeof id === "number" ? seriesCatalog[id] : undefined;
+          return {
+            status: 200,
+            results: row ? [{ idVariable: id, ...row, ultValorInformado: 1 }] : [],
+          };
+        }
+        if (path.startsWith("/estadisticas/v4.0/Monetarias/")) {
+          const id = Number(path.split("/").pop());
+          const desde = String(query?.desde ?? "");
+          const hasta = String(query?.hasta ?? "");
+          const detalle: Array<{ fecha: string; valor: number }> = [];
+          if (desde <= hasta) {
+            let cursor = hasta;
+            while (cursor >= desde && detalle.length < 80) {
+              detalle.push({ fecha: cursor, valor: id === 30 ? 100 : 10 });
+              cursor = addDays(cursor, -1);
+            }
+          }
+          return { status: 200, results: [{ idVariable: id, detalle }] };
+        }
+        if (path.includes("PlazosFijos")) {
+          return {
+            status: 200,
+            results: [
+              {
+                codigoEntidad: 11,
+                descripcionEntidad: "BANCO NACION",
+                nombreCorto: "PFTRADICIONAL",
+                nombreCompleto: "PLAZO FIJO",
+                fechaInformacion: "2026-10-21",
+                tasaEfectivaAnualMinima: 30,
+                canalConstitucion: "Sucursal",
+              },
+            ],
+          };
+        }
+        return { status: 200, results: [] };
+      },
+    );
     const getDocument = vi
       .fn()
       .mockResolvedValue(
@@ -113,13 +209,16 @@ describe("MCP 2026-07-28 protocol", () => {
       ["get-bcra-fx-quotes", { fecha: "2024-01-31" }],
       ["get-bcra-fx-quote-by-currency", { codMoneda: "USD", limit: 10 }],
       ["get-bcra-transparencia-producto", { producto: "plazosFijos" }],
+      ["get-bcra-ranking-tasas", { producto: "plazosFijos" }],
+      ["get-bcra-tasa-real-plazo-fijo", { tasaNominalAnual: 30, plazoDias: 30 }],
+      ["get-bcra-snapshot-macro", {}],
     ] as const;
 
     for (const [name, arguments_] of calls) {
       const result = await client.callTool({ name, arguments: arguments_ });
       expect(result.isError).not.toBe(true);
     }
-    expect(getJson).toHaveBeenCalledTimes(12);
+    expect(getJson).toHaveBeenCalledTimes(25);
     expect(getDocument).toHaveBeenCalledTimes(1);
   });
 

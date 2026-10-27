@@ -16,7 +16,7 @@ export const registerTransparenciaTools = (
     {
       title: "Producto financiero comparable",
       description:
-        "Consulta productos publicados en el régimen de transparencia del BCRA, para todas las entidades o una entidad específica.",
+        "Devuelve el detalle crudo de un producto del régimen de transparencia, para todas las entidades o una. Para ordenar quién paga o cobra más, usá get-bcra-ranking-tasas.",
       inputSchema: transparenciaProductInputSchema,
       dataSchema: transparenciaResponseSchema,
     },

@@ -334,9 +334,10 @@ export const createBcraHttpClient = (
 
           if (!response.ok) {
             const details = await readHttpErrorDetails(response);
+            const retried = attempt > 0 ? ` after ${attempt} retries` : "";
             throw new DomainApiError({
               kind: "HTTP_ERROR",
-              message: `BCRA API returned HTTP ${response.status}`,
+              message: `BCRA API returned HTTP ${response.status}${retried}. HTTP 429, 502, 503 and 504 are retried up to ${maxRetries} times.`,
               source: "bcra",
               statusCode: response.status,
               details,
@@ -379,7 +380,7 @@ export const createBcraHttpClient = (
           kind: abortKind,
           message:
             abortKind === "TIMEOUT"
-              ? `BCRA API request timed out after ${requestTimeoutMs}ms`
+              ? `BCRA API timed out after ${requestTimeoutMs}ms. HTTP 429, 502, 503 and 504 are retried; a timeout is not. Retry the call or set BCRA_HTTP_TIMEOUT_MS up to 60000.`
               : "BCRA API request was cancelled",
           source: "bcra",
         });

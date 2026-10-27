@@ -11,10 +11,81 @@ type PackResult = {
 };
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+  name: string;
   version: string;
   license: string;
+  mcpName?: string;
   bin: Record<string, string>;
+  engines?: { node?: string };
 };
+const serverJson = JSON.parse(readFileSync("server.json", "utf8")) as {
+  $schema?: string;
+  name?: string;
+  description?: string;
+  version?: string;
+  repository?: { url?: string; source?: string };
+  packages?: Array<{
+    registryType?: string;
+    identifier?: string;
+    version?: string;
+    registryBaseUrl?: string;
+    transport?: { type?: string };
+  }>;
+};
+
+const SERVER_SCHEMA =
+  "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
+const MCP_NAME = "io.github.mortiz-dev/mcp-bcra";
+
+if (packageJson.mcpName !== MCP_NAME) {
+  throw new Error(`package.json mcpName must be ${MCP_NAME}`);
+}
+if (packageJson.engines?.node !== ">=22") {
+  throw new Error("package.json engines.node must be >=22");
+}
+if (packageJson.bin["mcp-bcra"] !== "./dist/index.js") {
+  throw new Error("package.json bin mcp-bcra must point at ./dist/index.js");
+}
+if (serverJson.$schema !== SERVER_SCHEMA) {
+  throw new Error(`server.json must use schema ${SERVER_SCHEMA}`);
+}
+if (serverJson.name !== packageJson.mcpName) {
+  throw new Error(
+    `server.json name (${serverJson.name ?? "missing"}) must match package.json mcpName`,
+  );
+}
+if (!/^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/.test(serverJson.name ?? "")) {
+  throw new Error(`server.json name does not match the registry pattern`);
+}
+if (serverJson.version !== packageJson.version) {
+  throw new Error(
+    `server.json version (${serverJson.version ?? "missing"}) must match package.json`,
+  );
+}
+if (
+  typeof serverJson.description !== "string" ||
+  serverJson.description.length < 1 ||
+  serverJson.description.length > 100
+) {
+  throw new Error("server.json description must be 1–100 characters");
+}
+const npmPackage = serverJson.packages?.[0];
+if (
+  serverJson.packages?.length !== 1 ||
+  npmPackage?.registryType !== "npm" ||
+  npmPackage.identifier !== packageJson.name ||
+  npmPackage.version !== packageJson.version ||
+  npmPackage.registryBaseUrl !== "https://registry.npmjs.org" ||
+  npmPackage.transport?.type !== "stdio"
+) {
+  throw new Error("server.json npm package entry does not match the stdio contract");
+}
+if (
+  serverJson.repository?.url !== "https://github.com/mortiz-dev/mcp-bcra" ||
+  serverJson.repository.source !== "github"
+) {
+  throw new Error("server.json repository must point at the GitHub source");
+}
 const manifestSource = readFileSync("src/manifest.ts", "utf8");
 const manifestVersion = manifestSource.match(/version:\s*"([^"]+)"/)?.[1];
 

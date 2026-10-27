@@ -9,7 +9,7 @@ import {
 } from "../../shared/http/responseSchema.js";
 import type { TransparenciaProduct } from "./schemas.js";
 
-const productPaths: Record<TransparenciaProduct, string> = {
+export const transparenciaProductPaths: Record<TransparenciaProduct, string> = {
   cajasAhorros: "CajasAhorros",
   paquetes: "PaquetesProductos",
   plazosFijos: "PlazosFijos",
@@ -29,7 +29,7 @@ export interface TransparenciaApi {
 export const createTransparenciaApi = (client: BcraHttpClient): TransparenciaApi => ({
   async getProduct(params, context) {
     const data = await client.getJson(
-      `/transparencia/v1.0/${productPaths[params.producto]}`,
+      `/transparencia/v1.0/${transparenciaProductPaths[params.producto]}`,
       { codigoEntidad: params.codigoEntidad },
       toRequestOptions(context),
     );

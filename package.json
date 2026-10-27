@@ -1,7 +1,8 @@
 {
   "name": "mcp-bcra",
   "version": "2.0.0",
-  "description": "Read-only Model Context Protocol server for public BCRA APIs",
+  "mcpName": "io.github.mortiz-dev/mcp-bcra",
+  "description": "Read-only MCP server for public BCRA rates, plazo fijo returns, CER inflation, and the official dollar.",
   "type": "module",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -47,8 +48,16 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
+    "mcp-server",
     "bcra",
     "argentina",
+    "banco-central",
+    "tasas",
+    "plazo-fijo",
+    "inflacion",
+    "cer",
+    "dolar",
     "finance"
   ],
   "author": "Miguel Ortiz",
