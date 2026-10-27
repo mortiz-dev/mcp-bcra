@@ -1,0 +1,24 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mortiz-dev/mcp-bcra",
+  "title": "BCRA MCP",
+  "description": "Servidor MCP de solo lectura para las APIs públicas del BCRA.",
+  "repository": {
+    "url": "https://github.com/mortiz-dev/mcp-bcra",
+    "source": "github",
+    "id": "969699135"
+  },
+  "websiteUrl": "https://github.com/mortiz-dev/mcp-bcra",
+  "version": "2.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-bcra",
+      "version": "2.0.0",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

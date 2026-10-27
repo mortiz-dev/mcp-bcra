@@ -27,8 +27,9 @@ describe.runIf(runStdio)("packaged stdio transport", () => {
     try {
       await client.connect(transport);
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(13);
+      expect(tools).toHaveLength(16);
       expect(tools.some((tool) => tool.name === "get-bcra-metodologia")).toBe(true);
+      expect(tools.some((tool) => tool.name === "get-bcra-snapshot-macro")).toBe(true);
     } finally {
       await client.close();
     }

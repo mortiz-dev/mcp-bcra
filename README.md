@@ -61,6 +61,9 @@ Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva 
 | `get-bcra-fx-quotes` | `fecha` opcional |
 | `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
 | `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
+| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar` y `limit` (1–500, default 100) opcionales |
+| `get-bcra-tasa-real-plazo-fijo` | `tasaNominalAnual` opcional; `desde`, `hasta` y `plazoDias` (1–3000) opcionales. Sin fechas, toma 30 días hasta el último CER |
+| `get-bcra-snapshot-macro` | Sin parámetros específicos |
 
 Las fechas usan `YYYY-MM-DD`, deben existir en el calendario y el final no puede ser anterior al inicio. Los números son JSON numbers estrictos: no se convierten strings ni booleanos.
 
@@ -75,6 +78,38 @@ Productos válidos de Transparencia:
 - `tarjetas`
 
 Si `codigoEntidad` se omite, Transparencia consulta todas las entidades disponibles.
+
+### Herramientas de respuesta
+
+Estas tres tools no reemplazan a las de consulta: arman una respuesta a partir de las mismas APIs.
+
+`get-bcra-ranking-tasas` lee Transparencia y ordena ofertas. El campo de tasa sale de la respuesta real de cada producto:
+
+- Plazos fijos: `tasaEfectivaAnualMinima`. La API no publica TNA.
+- Préstamos personales, hipotecarios y prendarios: `costoFinancieroEfectivoTotalMaximo`, y también `tasaEfectivaAnualMaxima`. Si falta el CFT, esa oferta usa la TEA máxima.
+- Tarjetas: `tasaEfectivaAnualMaximaFinanciacion`, y también `tasaEfectivaAnualMaximaAdelantoEfectivo`.
+
+Por defecto hay una fila por entidad (la oferta extrema según el orden) y el orden favorece al usuario: mayor TEA mínima en plazos fijos y menor costo en préstamos y tarjetas. `modo: "oferta"` lista cada producto publicado. Cada fila trae código y nombre de entidad, tasas, fecha de información y la ruta de origen. Cajas de ahorro y paquetes no entran: no tienen un campo de tasa.
+
+`get-bcra-tasa-real-plazo-fijo` compara una TNA con la inflación del período medida por el CER (serie **30**, coeficiente de estabilización de referencia, diaria). Si no se pasa `tasaNominalAnual`, la TNA es la serie **12** (depósitos a 30 días en entidades financieras, nominal anual) en la fecha de inicio o el día hábil anterior. No usa BADLAR (serie 7) ni TAMAR (serie 44), que son tasas mayoristas, ni la inflación mensual (serie 27) o interanual (serie 28), porque no se alinean a un plazo arbitrario. La fórmula, con tasas de salida en porcentaje y base 365, es:
+
+```text
+tasa_nominal_del_periodo = (TNA / 100) * (dias / 365)
+inflacion = CER(hasta) / CER(desde) - 1
+tasa_real_del_periodo = (1 + tasa_nominal_del_periodo) / (1 + inflacion) - 1
+tasa_real_anualizada = (1 + tasa_real_del_periodo) ^ (365 / dias) - 1
+```
+
+`get-bcra-snapshot-macro` devuelve último valor, valor anterior, variación absoluta, variación porcentual, fecha y serie de:
+
+| Indicador | Serie | Por qué |
+|---|---:|---|
+| Tipo de cambio oficial | 5 | Tipo de cambio mayorista de referencia, en Principales Variables |
+| Reservas internacionales | 1 | Saldo en millones de USD, en Principales Variables |
+| Base monetaria | 15 | Saldo en millones de pesos, en Principales Variables |
+| Tasa de política monetaria | 160 | Única serie TNA con ese nombre. No está en Principales Variables |
+
+La serie 160 dejó de actualizarse el 2025-07-10. Si sigue vieja, la respuesta la marca `vigente: false` y no la sustituye por TAMAR, BADLAR ni pases. El tipo de cambio minorista es la serie 4 y no se usa como referencia oficial.
 
 ### Catálogo Excel de series
 
@@ -146,6 +181,22 @@ Cambios incompatibles:
 
 Un cliente que solo consumía el bloque de texto puede seguir parseando `{ok,data}`. Los clientes modernos deben preferir `structuredContent`.
 
+## Publicación manual
+
+npm y el MCP Registry no se publican desde CI. Hace falta un OK explícito de quien mantiene el repo. La metadata ya está preparada: `mcpName` en `package.json` y `server.json` en la raíz, con el esquema oficial `2025-12-11`.
+
+El nombre del servidor es `io.github.mortiz-dev/mcp-bcra`. La descripción del registry tiene un máximo de 100 caracteres. No hay variables secretas: las APIs del BCRA son públicas.
+
+1. Confirmar que `package.json`, `src/manifest.ts` y `server.json` tengan la misma versión. `2.0.0` todavía no está en npm. Si esa versión debe quedar reservada al changelog ya escrito, subir los tres archivos (por ejemplo a `2.1.0`) y mover las notas de `Unreleased`. `bun run pack:check` exige que coincidan.
+2. `bun run release:check`
+3. `bun run smoke:live`
+4. `npm adduser` si hace falta, y después `npm publish --access public`. `prepack` compila. `publishConfig.access` ya es `public`.
+5. Confirmar <https://www.npmjs.com/package/mcp-bcra> y que `npx mcp-bcra` negocie stdio.
+6. Instalar `mcp-publisher` desde el release oficial del MCP Registry y correr `mcp-publisher --help`.
+7. `mcp-publisher login github` con la cuenta `mortiz-dev`. Otro usuario no puede publicar ese nombre.
+8. `mcp-publisher publish` en la raíz del repo. El registry solo guarda metadata: el paquete de npm tiene que existir antes, con el mismo `mcpName` y la misma versión.
+9. Verificar con `curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.mortiz-dev/mcp-bcra"`.
+
 ## Desarrollo y release
 
 ```bash
@@ -167,14 +218,18 @@ Próximas incorporaciones recomendadas: leer series que el BCRA publica solo en 
 Arquitectura:
 
 - Cada dominio contiene `schemas.ts`, `api.ts` y `tools.ts`.
-- `api.ts` solo conoce `BcraHttpClient` y valida la respuesta upstream.
+- `api.ts` no conoce MCP. Usa `BcraHttpClient` y valida la respuesta upstream.
 - `tools.ts` declara contratos MCP, pasa cancelación y transforma resultados.
 - `src/shared/http` centraliza origen, rate, retry, timeout, tamaños y errores.
 - `src/shared/mcp` centraliza registro, anotaciones y respuestas.
-- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 13 tools.
+- `src/tools/registerAllTools.ts` crea un único cliente compartido y registra las 16 tools.
 
 Para agregar una tool, actualice schemas, API, registro, pruebas de dominio/protocolo y este README si cambia el contrato.
 
 ## Migración: catálogo Excel
 
 Se agrega `get-bcra-series-excel-catalog` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluir la nueva tool. El resultado tiene contrato propio de catálogo y no la envoltura `{status, results}` de las APIs JSON. Su `idVariable` puede usarse en `get-bcra-var-hist`. Quien inyecte un `BcraHttpClient` propio debe implementar `getDocument` para usar esta tool; `getJson` sigue siendo suficiente para las anteriores.
+
+## Migración: tools de respuesta
+
+Se agregan `get-bcra-ranking-tasas`, `get-bcra-tasa-real-plazo-fijo` y `get-bcra-snapshot-macro` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluirlas. Sus resultados no usan la envoltura `{status, results}`: traen la respuesta ya ordenada o calculada, con las series y los campos de tasa que se usaron. Siguen siendo de solo lectura y no consultan por CUIT/CUIL.

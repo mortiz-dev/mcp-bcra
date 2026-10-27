@@ -1,4 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server";
+import { createAnalisisApi } from "../domains/analisis/api.js";
+import { registerAnalisisTools } from "../domains/analisis/tools.js";
 import { createCentralDeudoresApi } from "../domains/centralDeudores/api.js";
 import { registerCentralDeudoresTools } from "../domains/centralDeudores/tools.js";
 import { createChequesApi } from "../domains/cheques/api.js";
@@ -28,6 +30,7 @@ export const registerAllTools = (
   registerEstadisticasCambiariasTools(server, createEstadisticasCambiariasApi(client));
   registerSeriesExcelTools(server, createSeriesExcelApi(client));
   registerTransparenciaTools(server, createTransparenciaApi(client));
+  registerAnalisisTools(server, createAnalisisApi(client));
 };
 
 export default registerAllTools;

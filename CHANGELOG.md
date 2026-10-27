@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added `server.json` and `package.json` `mcpName` for the official MCP Registry. Publishing to npm and the registry stays manual.
+- Added answer-oriented tools for Transparencia rate rankings, the ex-post real rate of a fixed-term deposit, and a daily macro snapshot. Existing tool contracts are unchanged.
+
 ## 2.0.0 — 2026-07-31
 
 - Migrated to MCP SDK v2 with modern `2026-07-28` negotiation and legacy stdio compatibility.
