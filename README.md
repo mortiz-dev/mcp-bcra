@@ -61,7 +61,7 @@ Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva 
 | `get-bcra-fx-quotes` | `fecha` opcional |
 | `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
 | `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
-| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar` y `limit` (1–500, default 100) opcionales |
+| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar`, `limit` (1–500, default 100) e `incluirTasasCero` (default `false`) opcionales. En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` opcionales |
 | `get-bcra-tasa-real-plazo-fijo` | `tasaNominalAnual` opcional; `desde`, `hasta` y `plazoDias` (1–3000) opcionales. Sin fechas, toma 30 días hasta el último CER |
 | `get-bcra-snapshot-macro` | Sin parámetros específicos |
 
@@ -91,6 +91,16 @@ Estas tres tools no reemplazan a las de consulta: arman una respuesta a partir d
 
 Por defecto hay una fila por entidad (la oferta extrema según el orden) y el orden favorece al usuario: mayor TEA mínima en plazos fijos y menor costo en préstamos y tarjetas. `modo: "oferta"` lista cada producto publicado. Cada fila trae código y nombre de entidad, tasas, fecha de información y la ruta de origen. Cajas de ahorro y paquetes no entran: no tienen un campo de tasa.
 
+Por defecto se excluyen las ofertas cuyo campo de orden es nulo o cero (`excluyeTasasCero: true`). `incluirTasasCero: true` las vuelve a incluir. Un costo financiero distinto de cero se conserva aunque otra tasa de la misma fila sea 0. `ofertasSinTasa` cuenta las filas sin número en el campo de orden; `ofertasTasaCero` cuenta las que publican 0. Las tasas cero excluidas no se vuelven a contar en `ofertasFueraDePlazo`.
+
+En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` filtran el entero publicado en `plazoMinimoInvertirDias`, inclusive. Una fila sin ese número queda afuera cuando el filtro está puesto. Esos parámetros no aplican a préstamos ni tarjetas.
+
+Ese entero no es una cantidad de días. El 2026-10-27 el catálogo vivo solo trae 0, 1, 2, 3, 4 y 5. El PDF del régimen ([Régimen de Transparencia v1.0](https://www.bcra.gob.ar/archivos/Catalogo/Content/files/pdf/regimen-transparencia-v1.pdf)) describe el campo como 30, 60, 90, 180 o 360, pero su propio ejemplo y la API publican 1 y 4. Esta tool no traduce el código: pedir 30 devuelve cero filas. Un valor 1 no es un plazo de un día. Algunos `nombreCorto` traen 30D, 60D, 90D, 180D o 365D junto a los códigos 1 a 5; eso no es una tabla oficial y no se usa para convertir.
+
+Los préstamos publican `plazoMaximoOtorgable` en meses, según ese PDF, y queda en `contexto`. Las tarjetas no publican plazo. Ninguno de los dos se filtra con el rango de plazos fijos.
+
+No hay filtro por tipo de entidad. Transparencia trae `codigoEntidad` y `descripcionEntidad`; el padrón `cheques/v1.0/entidades` trae `codigoEntidad` y `denominacion`. Ninguno publica clase, grupo o tipo. `buscar` compara el texto publicado (entidad y producto). No se infiere «banco» o «mutual» a partir del nombre.
+
 `get-bcra-tasa-real-plazo-fijo` compara una TNA con la inflación del período medida por el CER (serie **30**, coeficiente de estabilización de referencia, diaria). Si no se pasa `tasaNominalAnual`, la TNA es la serie **12** (depósitos a 30 días en entidades financieras, nominal anual) en la fecha de inicio o el día hábil anterior. No usa BADLAR (serie 7) ni TAMAR (serie 44), que son tasas mayoristas, ni la inflación mensual (serie 27) o interanual (serie 28), porque no se alinean a un plazo arbitrario. La fórmula, con tasas de salida en porcentaje y base 365, es:
 
 ```text
@@ -100,7 +110,7 @@ tasa_real_del_periodo = (1 + tasa_nominal_del_periodo) / (1 + inflacion) - 1
 tasa_real_anualizada = (1 + tasa_real_del_periodo) ^ (365 / dias) - 1
 ```
 
-`get-bcra-snapshot-macro` devuelve último valor, valor anterior, variación absoluta, variación porcentual, fecha y serie de:
+`get-bcra-snapshot-macro` devuelve último valor, valor anterior, variación absoluta, variación porcentual y serie de:
 
 | Indicador | Serie | Por qué |
 |---|---:|---|
@@ -109,7 +119,9 @@ tasa_real_anualizada = (1 + tasa_real_del_periodo) ^ (365 / dias) - 1
 | Base monetaria | 15 | Saldo en millones de pesos, en Principales Variables |
 | Tasa de política monetaria | 160 | Única serie TNA con ese nombre. No está en Principales Variables |
 
-La serie 160 dejó de actualizarse el 2025-07-10. Si sigue vieja, la respuesta la marca `vigente: false` y no la sustituye por TAMAR, BADLAR ni pases. El tipo de cambio minorista es la serie 4 y no se usa como referencia oficial.
+Cada indicador trae, siempre, `fechaUltimaObservacion` (la misma fecha que `ultimo.fecha`), `diasDesdeUltimaObservacion` (días de calendario entre esa fecha y `fechaConsulta`) y `vigente`. `vigente` es `true` cuando esa edad es de hasta 21 días. Si no lo es, `advertencia` explica el atraso.
+
+La serie 160 está discontinuada aguas arriba: el BCRA dejó de actualizarla el 2025-07-10. La tool sigue leyendo esa serie y no la sustituye por TAMAR, BADLAR ni pases. `vigente` sale de la fecha publicada; si el BCRA volviera a informarla, pasaría a `true` sin cambiar de serie. El tipo de cambio minorista es la serie 4 y no se usa como referencia oficial.
 
 ### Catálogo Excel de series
 
@@ -232,4 +244,4 @@ Se agrega `get-bcra-series-excel-catalog` sin modificar las tools existentes. Lo
 
 ## Migración: tools de respuesta
 
-Se agregan `get-bcra-ranking-tasas`, `get-bcra-tasa-real-plazo-fijo` y `get-bcra-snapshot-macro` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluirlas. Sus resultados no usan la envoltura `{status, results}`: traen la respuesta ya ordenada o calculada, con las series y los campos de tasa que se usaron. Siguen siendo de solo lectura y no consultan por CUIT/CUIL.
+Se agregan `get-bcra-ranking-tasas`, `get-bcra-tasa-real-plazo-fijo` y `get-bcra-snapshot-macro` sin modificar las tools existentes. Los clientes que muestren una lista fija deben incluirlas. Sus resultados no usan la envoltura `{status, results}`: traen la respuesta ya ordenada o calculada, con las series y los campos de tasa que se usaron. Siguen siendo de solo lectura y no consultan por CUIT/CUIL. El ranking excluye por defecto tasas nulas y cero del campo de orden. El snapshot informa `fechaUltimaObservacion`, `diasDesdeUltimaObservacion` y `vigente` en cada indicador. La serie 160 sigue siendo la tasa de política y está discontinuada aguas arriba.

@@ -22,6 +22,8 @@ const daysBetweenDates = (desde: string, hasta: string): number => {
   return Math.round((end - start) / 86_400_000);
 };
 
+const rankingTermDays = z.number().int().safe().min(0).max(36_500);
+
 export const rankingInputSchema = z
   .object({
     producto: rankingProductSchema,
@@ -29,9 +31,38 @@ export const rankingInputSchema = z
     orden: rankingOrderSchema.optional(),
     buscar: nonEmptyString.max(120).optional(),
     limit: z.number().int().safe().min(1).max(500).default(100),
+    incluirTasasCero: z.boolean().default(false),
+    plazoMinimoInvertirDesde: rankingTermDays.optional(),
+    plazoMinimoInvertirHasta: rankingTermDays.optional(),
     ...localeInput,
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.plazoMinimoInvertirDesde !== undefined &&
+      value.plazoMinimoInvertirHasta !== undefined &&
+      value.plazoMinimoInvertirDesde > value.plazoMinimoInvertirHasta
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["plazoMinimoInvertirHasta"],
+        message:
+          "plazoMinimoInvertirHasta must be greater than or equal to plazoMinimoInvertirDesde",
+      });
+    }
+    if (
+      value.producto !== "plazosFijos" &&
+      (value.plazoMinimoInvertirDesde !== undefined ||
+        value.plazoMinimoInvertirHasta !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["producto"],
+        message:
+          "plazoMinimoInvertirDesde and plazoMinimoInvertirHasta only apply to plazosFijos, which publishes plazoMinimoInvertirDias",
+      });
+    }
+  });
 
 export const realRateInputSchema = z
   .object({
@@ -107,6 +138,14 @@ export const rankingResponseSchema = z.object({
   }),
   totalOfertas: z.number().int().nonnegative(),
   ofertasSinTasa: z.number().int().nonnegative(),
+  ofertasTasaCero: z.number().int().nonnegative(),
+  ofertasFueraDePlazo: z.number().int().nonnegative(),
+  excluyeTasasCero: z.boolean(),
+  filtros: z.object({
+    incluirTasasCero: z.boolean(),
+    plazoMinimoInvertirDesde: z.number().int().nonnegative().nullable(),
+    plazoMinimoInvertirHasta: z.number().int().nonnegative().nullable(),
+  }),
   total: z.number().int().nonnegative(),
   truncado: z.boolean(),
   resultados: z.array(
@@ -168,6 +207,8 @@ const indicatorSchema = z.object({
   anterior: observationSchema.nullable(),
   variacion: z.number().finite().nullable(),
   variacionPorcentual: z.number().finite().nullable(),
+  fechaUltimaObservacion: isoDate,
+  diasDesdeUltimaObservacion: z.number().int().safe(),
   vigente: z.boolean(),
   advertencia: z.string().nullable(),
 });

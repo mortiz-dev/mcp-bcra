@@ -344,7 +344,7 @@ export const PRODUCT_SPECS = {
       "montoMinimoInvertir",
     ],
     criterio:
-      "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA.",
+      "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5, y el PDF del régimen lista 30, 60, 90, 180 y 360. Esta tool no traduce el código. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
   },
   prestamosPersonales: {
     rateFields: ["tasaEfectivaAnualMaxima", "costoFinancieroEfectivoTotalMaximo"],
@@ -358,7 +358,7 @@ export const PRODUCT_SPECS = {
       "destinoFondos",
     ],
     criterio:
-      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero.",
+      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
   prestamosHipotecarios: {
     rateFields: ["tasaEfectivaAnualMaxima", "costoFinancieroEfectivoTotalMaximo"],
@@ -372,7 +372,7 @@ export const PRODUCT_SPECS = {
       "destinoFondos",
     ],
     criterio:
-      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Pesos y UVA quedan en el mismo ranking: use buscar para separarlos.",
+      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Pesos y UVA quedan en el mismo ranking: use buscar para separarlos. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
   prestamosPrendarios: {
     rateFields: ["tasaEfectivaAnualMaxima", "costoFinancieroEfectivoTotalMaximo"],
@@ -386,7 +386,7 @@ export const PRODUCT_SPECS = {
       "destinoFondos",
     ],
     criterio:
-      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero.",
+      "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
   tarjetas: {
     rateFields: [
@@ -398,7 +398,7 @@ export const PRODUCT_SPECS = {
     defaultOrden: "asc",
     contextFields: ["segmento"],
     criterio:
-      "Se ordena por tasaEfectivaAnualMaximaFinanciacion y también se informa tasaEfectivaAnualMaximaAdelantoEfectivo. Esta API no publica un costo financiero total. Por defecto, menor tasa de financiación primero.",
+      "Se ordena por tasaEfectivaAnualMaximaFinanciacion y también se informa tasaEfectivaAnualMaximaAdelantoEfectivo. Esta API no publica un costo financiero total. Por defecto, menor tasa de financiación primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Esta respuesta no trae plazo ni tipo de entidad.",
   },
 } as const satisfies Record<string, ProductSpec>;
 
@@ -555,6 +555,54 @@ const groupByEntity = (
     winners.push({ ...winner, ofertasEntidad: group.length });
   }
   return winners;
+};
+
+const publishedPlazoCode = (offer: RankedOffer): number | null => {
+  const value = offer.contexto.plazoMinimoInvertirDias;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+export const applyRankingFilters = (
+  offers: readonly RankedOffer[],
+  options: {
+    incluirTasasCero: boolean;
+    plazoDesde?: number;
+    plazoHasta?: number;
+  },
+): {
+  offers: RankedOffer[];
+  ofertasTasaCero: number;
+  ofertasFueraDePlazo: number;
+} => {
+  const rated: RankedOffer[] = [];
+  let ofertasTasaCero = 0;
+  for (const offer of offers) {
+    if (offer.sortKey === 0) {
+      ofertasTasaCero += 1;
+      if (!options.incluirTasasCero) {
+        continue;
+      }
+    }
+    rated.push(offer);
+  }
+  if (options.plazoDesde === undefined && options.plazoHasta === undefined) {
+    return { offers: rated, ofertasTasaCero, ofertasFueraDePlazo: 0 };
+  }
+  const matched: RankedOffer[] = [];
+  let ofertasFueraDePlazo = 0;
+  for (const offer of rated) {
+    const plazo = publishedPlazoCode(offer);
+    const inside =
+      plazo !== null &&
+      (options.plazoDesde === undefined || plazo >= options.plazoDesde) &&
+      (options.plazoHasta === undefined || plazo <= options.plazoHasta);
+    if (!inside) {
+      ofertasFueraDePlazo += 1;
+      continue;
+    }
+    matched.push(offer);
+  }
+  return { offers: matched, ofertasTasaCero, ofertasFueraDePlazo };
 };
 
 export const rankOffers = (

@@ -7,6 +7,7 @@ import {
   variation,
 } from "../src/domains/analisis/compute.js";
 import {
+  rankingInputSchema,
   rankingResponseSchema,
   realRateInputSchema,
   realRateResponseSchema,
@@ -137,6 +138,26 @@ const loanOffers = [
     tasaEfectivaAnualMaxima: 40,
     denominacion: "UVA",
   },
+  {
+    codigoEntidad: 20,
+    descripcionEntidad: "CFT CHICO",
+    nombreCorto: "CHICO",
+    nombreCompleto: "CHICO",
+    fechaInformacion: "2026-10-01",
+    costoFinancieroEfectivoTotalMaximo: 0.33,
+    tasaEfectivaAnualMaxima: 0,
+    denominacion: "Pesos",
+  },
+  {
+    codigoEntidad: 99,
+    descripcionEntidad: "TASA CERO",
+    nombreCorto: "CERO",
+    nombreCompleto: "CERO",
+    fechaInformacion: "2026-10-01",
+    costoFinancieroEfectivoTotalMaximo: 0,
+    tasaEfectivaAnualMaxima: 0,
+    denominacion: "Pesos",
+  },
 ];
 
 const pointValue = (id: number, fecha: string): number => {
@@ -247,6 +268,14 @@ describe("analisis API", () => {
       campoOrden: "tasaEfectivaAnualMinima",
       totalOfertas: 3,
       ofertasSinTasa: 1,
+      ofertasTasaCero: 1,
+      ofertasFueraDePlazo: 0,
+      excluyeTasasCero: true,
+      filtros: {
+        incluirTasasCero: false,
+        plazoMinimoInvertirDesde: null,
+        plazoMinimoInvertirHasta: null,
+      },
       total: 2,
       truncado: false,
       fuente: { path: "/transparencia/v1.0/PlazosFijos" },
@@ -259,7 +288,7 @@ describe("analisis API", () => {
       ]),
     ).toEqual([
       [11, 30, 1],
-      [7, 21.01, 2],
+      [7, 21.01, 1],
     ]);
     expect(ranked.criterio).toContain("no publica TNA");
     expect(getJson).toHaveBeenCalledWith(
@@ -279,14 +308,28 @@ describe("analisis API", () => {
       modo: "oferta",
       limit: 1,
     });
-    expect(filtered.total).toBe(1);
-    expect(filtered.truncado).toBe(false);
-    expect(filtered.resultados[0]?.nombreCorto).toBe("PFUVA");
-    expect(filtered.resultados[0]?.ofertasEntidad).toBeNull();
+    expect(filtered.total).toBe(0);
+    expect(filtered.resultados).toEqual([]);
+    expect(filtered.excluyeTasasCero).toBe(true);
+
+    const withZero = await api.rankRates({
+      producto: "plazosFijos",
+      buscar: "uva",
+      modo: "oferta",
+      incluirTasasCero: true,
+      limit: 1,
+    });
+    expect(withZero.total).toBe(1);
+    expect(withZero.truncado).toBe(false);
+    expect(withZero.excluyeTasasCero).toBe(false);
+    expect(withZero.resultados[0]?.nombreCorto).toBe("PFUVA");
+    expect(withZero.resultados[0]?.ofertasEntidad).toBeNull();
 
     const loans = await api.rankRates({ producto: "prestamosPersonales" });
     expect(loans.orden).toBe("asc");
     expect(loans.fuente.path).toBe("/transparencia/v1.0/Prestamos/Personales");
+    expect(loans.ofertasTasaCero).toBe(1);
+    expect(loans.excluyeTasasCero).toBe(true);
     expect(
       loans.resultados.map((row) => [
         row.codigoEntidad,
@@ -295,6 +338,7 @@ describe("analisis API", () => {
         row.ofertasEntidad,
       ]),
     ).toEqual([
+      [20, "costoFinancieroEfectivoTotalMaximo", 0.33, 1],
       [11, "costoFinancieroEfectivoTotalMaximo", 50, 1],
       [7, "costoFinancieroEfectivoTotalMaximo", 100, 2],
     ]);
@@ -306,7 +350,106 @@ describe("analisis API", () => {
       limit: 1,
     });
     expect(truncated.truncado).toBe(true);
-    expect(truncated.resultados[0]?.tasas.tasaEfectivaAnualMinima).toBe(0);
+    expect(truncated.total).toBe(2);
+    expect(truncated.resultados[0]?.tasas.tasaEfectivaAnualMinima).toBe(21.01);
+
+    const zeroFirst = await api.rankRates({
+      producto: "plazosFijos",
+      modo: "oferta",
+      orden: "asc",
+      incluirTasasCero: true,
+      limit: 1,
+    });
+    expect(zeroFirst.resultados[0]?.tasas.tasaEfectivaAnualMinima).toBe(0);
+  });
+
+  it("filters the published plazo code and rejects it on other products", async () => {
+    const termOffers = [
+      {
+        codigoEntidad: 72614,
+        descripcionEntidad: "MUTUAL DE DOCENTES",
+        nombreCorto: "AHORRO",
+        nombreCompleto: "AHORRO",
+        fechaInformacion: "2026-10-05",
+        tasaEfectivaAnualMinima: 97.08,
+        plazoMinimoInvertirDias: 1,
+        canalConstitucion: "Ventanilla",
+      },
+      {
+        codigoEntidad: 11,
+        descripcionEntidad: "BANCO NACION",
+        nombreCorto: "PF30",
+        nombreCompleto: "PLAZO FIJO 30",
+        fechaInformacion: "2026-10-21",
+        tasaEfectivaAnualMinima: 30,
+        plazoMinimoInvertirDias: 30,
+      },
+      {
+        codigoEntidad: 7,
+        descripcionEntidad: "BANCO GALICIA",
+        nombreCorto: "SIN PLAZO",
+        nombreCompleto: "SIN PLAZO",
+        fechaInformacion: "2026-10-21",
+        tasaEfectivaAnualMinima: 40,
+      },
+    ];
+    const { client } = mockClient(undefined, termOffers);
+    const api = createAnalisisApi(client, { now: () => NOW });
+
+    const unfiltered = await api.rankRates({ producto: "plazosFijos", limit: 1 });
+    expect(unfiltered.resultados[0]?.codigoEntidad).toBe(72614);
+    expect(unfiltered.resultados[0]?.contexto.plazoMinimoInvertirDias).toBe(1);
+
+    const comparable = await api.rankRates({
+      producto: "plazosFijos",
+      plazoMinimoInvertirDesde: 30,
+    });
+    expect(rankingResponseSchema.parse(comparable)).toMatchObject({
+      ofertasFueraDePlazo: 2,
+      total: 1,
+      filtros: { plazoMinimoInvertirDesde: 30, plazoMinimoInvertirHasta: null },
+    });
+    expect(comparable.resultados.map((row) => row.codigoEntidad)).toEqual([11]);
+
+    const shortTerm = await api.rankRates({
+      producto: "plazosFijos",
+      plazoMinimoInvertirDesde: 1,
+      plazoMinimoInvertirHasta: 29,
+    });
+    expect(shortTerm.resultados.map((row) => row.codigoEntidad)).toEqual([72614]);
+
+    expect(rankingInputSchema.parse({ producto: "plazosFijos" })).toMatchObject({
+      incluirTasasCero: false,
+      modo: "entidad",
+      limit: 100,
+    });
+    expect(
+      rankingInputSchema.safeParse({
+        producto: "tarjetas",
+        plazoMinimoInvertirDesde: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      rankingInputSchema.safeParse({
+        producto: "plazosFijos",
+        plazoMinimoInvertirDesde: 5,
+        plazoMinimoInvertirHasta: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      rankingInputSchema.safeParse({ producto: "plazosFijos", tipoEntidad: "banco" })
+        .success,
+    ).toBe(false);
+    await expect(
+      api.rankRates({ producto: "tarjetas", plazoMinimoInvertirHasta: 1 }),
+    ).rejects.toMatchObject({ kind: "UNSUPPORTED_CAPABILITY" });
+    await expect(
+      api.rankRates({
+        producto: "plazosFijos",
+        plazoMinimoInvertirDesde: 5,
+        plazoMinimoInvertirHasta: 1,
+      }),
+    ).rejects.toMatchObject({ kind: "UNSUPPORTED_CAPABILITY" });
   });
 
   it("rejects a transparency payload without entity identity", async () => {
@@ -431,16 +574,25 @@ describe("analisis API", () => {
       vigente: true,
       advertencia: null,
     });
+    for (const indicator of Object.values(snapshot.indicadores)) {
+      expect(indicator.fechaUltimaObservacion).toBe(indicator.ultimo.fecha);
+      expect(indicator.diasDesdeUltimaObservacion).toBe(
+        daysBetween(indicator.ultimo.fecha, snapshot.fechaConsulta),
+      );
+    }
     expect(snapshot.indicadores.reservasInternacionales.idVariable).toBe(1);
     expect(snapshot.indicadores.baseMonetaria.idVariable).toBe(15);
     const policy = snapshot.indicadores.tasaPolitica;
     expect(policy).toMatchObject({
       idVariable: 160,
       vigente: false,
+      fechaUltimaObservacion: "2025-07-10",
+      diasDesdeUltimaObservacion: daysBetween("2025-07-10", TODAY),
       ultimo: { fecha: "2025-07-10", valor: 29 },
       anterior: { fecha: "2025-07-08", valor: 28 },
       variacion: 1,
     });
+    expect(policy.diasDesdeUltimaObservacion).toBeGreaterThan(21);
     expect(policy.advertencia).toContain("No se reemplaza por TAMAR");
     expect(getJson).toHaveBeenCalledWith(
       "/estadisticas/v4.0/Monetarias/5",

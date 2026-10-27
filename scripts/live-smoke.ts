@@ -28,7 +28,7 @@ const snapshot = await analisis.macroSnapshot();
 const { tipoCambio, reservasInternacionales, baseMonetaria, tasaPolitica } =
   snapshot.indicadores;
 console.log(
-  `Live smoke OK: snapshot fx=${tipoCambio.ultimo.valor}@${tipoCambio.ultimo.fecha} id=${tipoCambio.idVariable} reservas=${reservasInternacionales.ultimo.valor}@${reservasInternacionales.ultimo.fecha} id=${reservasInternacionales.idVariable} base=${baseMonetaria.ultimo.valor}@${baseMonetaria.ultimo.fecha} id=${baseMonetaria.idVariable} politica=${tasaPolitica.ultimo.valor}@${tasaPolitica.ultimo.fecha} id=${tasaPolitica.idVariable} vigente=${tasaPolitica.vigente}`,
+  `Live smoke OK: snapshot fx=${tipoCambio.ultimo.valor}@${tipoCambio.fechaUltimaObservacion} dias=${tipoCambio.diasDesdeUltimaObservacion} id=${tipoCambio.idVariable} reservas=${reservasInternacionales.ultimo.valor}@${reservasInternacionales.fechaUltimaObservacion} dias=${reservasInternacionales.diasDesdeUltimaObservacion} id=${reservasInternacionales.idVariable} base=${baseMonetaria.ultimo.valor}@${baseMonetaria.fechaUltimaObservacion} dias=${baseMonetaria.diasDesdeUltimaObservacion} id=${baseMonetaria.idVariable} politica=${tasaPolitica.ultimo.valor}@${tasaPolitica.fechaUltimaObservacion} dias=${tasaPolitica.diasDesdeUltimaObservacion} id=${tasaPolitica.idVariable} vigente=${tasaPolitica.vigente}`,
 );
 
 const realRate = await analisis.realFixedTermRate({ plazoDias: 30 });
@@ -46,6 +46,17 @@ for (const producto of [
   const ranking = await analisis.rankRates({ producto, limit: 1 });
   const top = ranking.resultados[0];
   console.log(
-    `Live smoke OK: ranking ${producto} total=${ranking.total} campo=${ranking.campoOrden} top=${top?.codigoEntidad ?? "none"} tasa=${top ? JSON.stringify(top.tasas) : "{}"}`,
+    `Live smoke OK: ranking ${producto} total=${ranking.total} ceros=${ranking.ofertasTasaCero} excluyeCeros=${ranking.excluyeTasasCero} campo=${ranking.campoOrden} top=${top?.codigoEntidad ?? "none"} plazo=${String(top?.contexto.plazoMinimoInvertirDias ?? "")} tasa=${top ? JSON.stringify(top.tasas) : "{}"}`,
   );
 }
+
+const comparableDeposits = await analisis.rankRates({
+  producto: "plazosFijos",
+  plazoMinimoInvertirDesde: 1,
+  plazoMinimoInvertirHasta: 1,
+  limit: 1,
+});
+const comparableTop = comparableDeposits.resultados[0];
+console.log(
+  `Live smoke OK: ranking plazosFijos plazo=1 total=${comparableDeposits.total} fuera=${comparableDeposits.ofertasFueraDePlazo} top=${comparableTop?.codigoEntidad ?? "none"} plazo=${String(comparableTop?.contexto.plazoMinimoInvertirDias ?? "")} tasa=${comparableTop ? JSON.stringify(comparableTop.tasas) : "{}"}`,
+);

@@ -8,6 +8,7 @@ import {
 } from "../transparencia/api.js";
 import {
   addDays,
+  applyRankingFilters,
   computeRealRate,
   DAY_COUNT_BASIS,
   DEFAULT_TERM_DAYS,
@@ -126,6 +127,8 @@ export const createAnalisisApi = (
       anterior,
       variacion: change.variacion,
       variacionPorcentual: change.variacionPorcentual,
+      fechaUltimaObservacion: ultimo.fecha,
+      diasDesdeUltimaObservacion: age,
       vigente,
       advertencia: vigente
         ? null
@@ -139,12 +142,44 @@ export const createAnalisisApi = (
     async rankRates(params: RankingInput, context?: BcraApiContext) {
       const producto = params.producto as RankingProduct;
       const spec = PRODUCT_SPECS[producto];
+      const plazoMinimoInvertirDesde = params.plazoMinimoInvertirDesde;
+      const plazoMinimoInvertirHasta = params.plazoMinimoInvertirHasta;
+      if (
+        producto !== "plazosFijos" &&
+        (plazoMinimoInvertirDesde !== undefined ||
+          plazoMinimoInvertirHasta !== undefined)
+      ) {
+        throw new DomainApiError({
+          kind: "UNSUPPORTED_CAPABILITY",
+          message:
+            "plazoMinimoInvertirDesde and plazoMinimoInvertirHasta only apply to plazosFijos, which publishes plazoMinimoInvertirDias",
+          source: "bcra",
+        });
+      }
+      if (
+        plazoMinimoInvertirDesde !== undefined &&
+        plazoMinimoInvertirHasta !== undefined &&
+        plazoMinimoInvertirDesde > plazoMinimoInvertirHasta
+      ) {
+        throw new DomainApiError({
+          kind: "UNSUPPORTED_CAPABILITY",
+          message:
+            "plazoMinimoInvertirHasta must be greater than or equal to plazoMinimoInvertirDesde",
+          source: "bcra",
+        });
+      }
       const response = await transparencia.getProduct({ producto }, context);
       const parsed = readOffers(response, spec);
       const orden = params.orden ?? spec.defaultOrden;
       const modo = params.modo ?? "entidad";
       const limit = params.limit ?? 100;
-      const { ranked, total } = rankOffers(parsed.offers, {
+      const incluirTasasCero = params.incluirTasasCero ?? false;
+      const filtered = applyRankingFilters(parsed.offers, {
+        incluirTasasCero,
+        plazoDesde: plazoMinimoInvertirDesde,
+        plazoHasta: plazoMinimoInvertirHasta,
+      });
+      const { ranked, total } = rankOffers(filtered.offers, {
         buscar: params.buscar,
         modo,
         orden,
@@ -164,6 +199,14 @@ export const createAnalisisApi = (
         },
         totalOfertas: parsed.offers.length,
         ofertasSinTasa: parsed.sinTasa,
+        ofertasTasaCero: filtered.ofertasTasaCero,
+        ofertasFueraDePlazo: filtered.ofertasFueraDePlazo,
+        excluyeTasasCero: !incluirTasasCero,
+        filtros: {
+          incluirTasasCero,
+          plazoMinimoInvertirDesde: plazoMinimoInvertirDesde ?? null,
+          plazoMinimoInvertirHasta: plazoMinimoInvertirHasta ?? null,
+        },
         total,
         truncado: total > ranked.length,
         resultados: ranked.map((row, index) => ({

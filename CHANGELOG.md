@@ -4,6 +4,7 @@
 
 - Added `server.json` and `package.json` `mcpName` for the official MCP Registry. Publishing to npm and the registry stays manual.
 - Added answer-oriented tools for Transparencia rate rankings, the ex-post real rate of a fixed-term deposit, and a daily macro snapshot. Existing tool contracts are unchanged.
+- Rankings drop null and zero sort rates by default. Fixed-term rankings can filter the published `plazoMinimoInvertirDias` integer; that value is not a day count and is not translated. The macro snapshot reports observation age on every indicator. Policy-rate series 160 stays in place and is documented as discontinued upstream.
 
 ## 2.0.0 — 2026-07-31
 
