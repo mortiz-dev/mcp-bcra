@@ -16,8 +16,10 @@ import {
   type Observation,
   observationOn,
   observationOnOrBefore,
+  offersMatchingSearch,
   POLICY_STALE_DAYS,
   PRODUCT_SPECS,
+  partitionByPlausibility,
   REAL_RATE_FORMULA,
   rankOffers,
   readObservations,
@@ -174,13 +176,23 @@ export const createAnalisisApi = (
       const modo = params.modo ?? "entidad";
       const limit = params.limit ?? 100;
       const incluirTasasCero = params.incluirTasasCero ?? false;
+      const incluirValoresAtipicos = params.incluirValoresAtipicos ?? false;
       const filtered = applyRankingFilters(parsed.offers, {
         incluirTasasCero,
         plazoDesde: plazoMinimoInvertirDesde,
         plazoHasta: plazoMinimoInvertirHasta,
       });
-      const { ranked, total } = rankOffers(filtered.offers, {
-        buscar: params.buscar,
+      const searched = offersMatchingSearch(filtered.offers, params.buscar);
+      const plausibility = partitionByPlausibility(searched, spec.plausibility);
+      const atypical = new Set(plausibility.outliers);
+      const tagged = searched.map((offer) => ({
+        ...offer,
+        atipico: atypical.has(offer),
+      }));
+      const rankable = incluirValoresAtipicos
+        ? tagged
+        : tagged.filter((offer) => !offer.atipico);
+      const { ranked, total } = rankOffers(rankable, {
         modo,
         orden,
         sortField: spec.sortField,
@@ -192,7 +204,7 @@ export const createAnalisisApi = (
         orden,
         campoOrden: spec.sortField,
         camposTasa: [...spec.rateFields],
-        criterio: spec.criterio,
+        criterio: `${spec.criterio} Por defecto se apartan las tasas fuera del intervalo de plausibilidad de esta respuesta (z modificado 3.5, por denominación) y se listan en valoresDescartados. incluirValoresAtipicos las devuelve en el ranking con atipico true.`,
         fuente: {
           api: "Transparencia v1.0",
           path: `/transparencia/v1.0/${transparenciaProductPaths[producto]}`,
@@ -202,11 +214,15 @@ export const createAnalisisApi = (
         ofertasTasaCero: filtered.ofertasTasaCero,
         ofertasFueraDePlazo: filtered.ofertasFueraDePlazo,
         excluyeTasasCero: !incluirTasasCero,
+        excluyeValoresAtipicos: !incluirValoresAtipicos,
         filtros: {
           incluirTasasCero,
+          incluirValoresAtipicos,
           plazoMinimoInvertirDesde: plazoMinimoInvertirDesde ?? null,
           plazoMinimoInvertirHasta: plazoMinimoInvertirHasta ?? null,
         },
+        limitesPlausibilidad: plausibility.limits,
+        valoresDescartados: incluirValoresAtipicos ? [] : plausibility.discarded,
         total,
         truncado: total > ranked.length,
         resultados: ranked.map((row, index) => ({
@@ -220,6 +236,7 @@ export const createAnalisisApi = (
           tasas: row.tasas,
           contexto: row.contexto,
           ofertasEntidad: row.ofertasEntidad,
+          atipico: row.atipico === true,
         })),
       };
     },

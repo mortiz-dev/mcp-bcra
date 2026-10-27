@@ -61,7 +61,7 @@ Todas aceptan `idioma` opcional (`es-AR` o `en-US`). La disponibilidad efectiva 
 | `get-bcra-fx-quotes` | `fecha` opcional |
 | `get-bcra-fx-quote-by-currency` | `codMoneda`; `fechadesde`, `fechahasta`, `limit` (10–1000), `offset` opcionales |
 | `get-bcra-transparencia-producto` | `producto`; `codigoEntidad` opcional |
-| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar`, `limit` (1–500, default 100) e `incluirTasasCero` (default `false`) opcionales. En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` opcionales |
+| `get-bcra-ranking-tasas` | `producto` (`plazosFijos`, `prestamosPersonales`, `prestamosHipotecarios`, `prestamosPrendarios`, `tarjetas`); `modo` (`entidad` por defecto u `oferta`); `orden` (`asc` o `desc`); `buscar`, `limit` (1–500, default 100), `incluirTasasCero` (default `false`) e `incluirValoresAtipicos` (default `false`) opcionales. En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` opcionales |
 | `get-bcra-tasa-real-plazo-fijo` | `tasaNominalAnual` opcional; `desde`, `hasta` y `plazoDias` (1–3000) opcionales. Sin fechas, toma 30 días hasta el último CER |
 | `get-bcra-snapshot-macro` | Sin parámetros específicos |
 
@@ -92,6 +92,10 @@ Estas tres tools no reemplazan a las de consulta: arman una respuesta a partir d
 Por defecto hay una fila por entidad (la oferta extrema según el orden) y el orden favorece al usuario: mayor TEA mínima en plazos fijos y menor costo en préstamos y tarjetas. `modo: "oferta"` lista cada producto publicado. Cada fila trae código y nombre de entidad, tasas, fecha de información y la ruta de origen. Cajas de ahorro y paquetes no entran: no tienen un campo de tasa.
 
 Por defecto se excluyen las ofertas cuyo campo de orden es nulo o cero (`excluyeTasasCero: true`). `incluirTasasCero: true` las vuelve a incluir. Un costo financiero distinto de cero se conserva aunque otra tasa de la misma fila sea 0. `ofertasSinTasa` cuenta las filas sin número en el campo de orden; `ofertasTasaCero` cuenta las que publican 0. Las tasas cero excluidas no se vuelven a contar en `ofertasFueraDePlazo`.
+
+Con lo que queda, cada respuesta calcula un intervalo de plausibilidad y, por defecto, saca del ranking lo que cae afuera (`excluyeValoresAtipicos: true`). Esos valores no se ocultan: van en `valoresDescartados` con entidad, campo, valor y motivo. `incluirValoresAtipicos: true` los devuelve en el ranking con `atipico: true` y deja `valoresDescartados` vacío. `limitesPlausibilidad` trae el intervalo usado por grupo.
+
+La regla es el z modificado de Iglewicz y Hoaglin (1993): una tasa positiva queda afuera cuando `|0,6745 · (x − mediana) / MAD| > 3,5`. La MAD es la mediana de las desviaciones absolutas. El grupo es la `denominacion` publicada; si no hay, todas las filas van juntas. Con menos de 8 tasas positivas, o si la MAD es 0, no se usa el z y solo rigen las cotas fijas. Plazos fijos y tarjetas se miden en la escala de la tasa. El CFT de los préstamos se mide en logaritmo, porque la cola derecha en pesos es tan larga que una valla lineal cae por debajo de cero y dejaría pasar un CFT de 0,5. La TEA baja de un plazo fijo en UVA o dólares queda adentro de la valla lineal: es otro régimen, no un error. Las cotas fijas, en porcentaje anual y de comparación estricta, son plazos fijos `[0, 150]`, préstamos `[1, 10000]` y tarjetas `[1, 2500]`. El intervalo se recalcula en cada llamada.
 
 En plazos fijos, `plazoMinimoInvertirDesde` y `plazoMinimoInvertirHasta` filtran el entero publicado en `plazoMinimoInvertirDias`, inclusive. Una fila sin ese número queda afuera cuando el filtro está puesto. Esos parámetros no aplican a préstamos ni tarjetas.
 

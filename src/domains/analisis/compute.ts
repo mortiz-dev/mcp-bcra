@@ -10,6 +10,31 @@ export const POLICY_STALE_DAYS = 21;
 export const DEFAULT_TERM_DAYS = 30;
 export const DAY_COUNT_BASIS = 365;
 
+/**
+ * Plausibility fence, recomputed on the offers still in the response.
+ *
+ * Iglewicz and Hoaglin (1993) modified z-score: flag x when
+ * |0.6745 * (x - median) / MAD| > 3.5. MAD is the median absolute
+ * deviation. Groups are the published `denominacion`; rows without one
+ * share a single group. A group with fewer than 8 positive rates, or
+ * with MAD 0, skips the z-score and keeps only the hard floor/ceiling.
+ *
+ * Fixed-term TEA and card financing TEA use the raw percent scale, so a
+ * high deposit rate is comparable to the center of the catalog. Loan CFT
+ * uses ln(rate): the peso cross-section is too right-skewed for a linear
+ * fence, which collapses below zero and would leave a 0.5% CFT in place.
+ * The low mode of fixed-term TEA (UVA and USD deposits near 0) stays
+ * inside the linear fence on purpose.
+ *
+ * Hard annual-percent rails, applied after the z-score and also when the
+ * sample is too small: plazos fijos [0, 150], loans [1, 10000], cards
+ * [1, 2500]. Comparison is strict. Zeros are removed by the separate
+ * zero filter before this step unless `incluirTasasCero` is set.
+ */
+export const MODIFIED_Z_CUTOFF = 3.5;
+export const MAD_SIGMA_FACTOR = 0.6745;
+export const MIN_PLAUSIBILITY_SAMPLE = 8;
+
 export type SeriesSpec = {
   id: number;
   descriptions: readonly string[];
@@ -85,6 +110,7 @@ export type RankedOffer = {
   nombreCompleto: string | null;
   fechaInformacion: string | null;
   campoOrden: string;
+  atipico?: boolean;
   tasas: Record<string, number>;
   contexto: Record<string, string | number | null>;
   sortKey: number;
@@ -322,6 +348,14 @@ export const computeRealRate = (input: {
   };
 };
 
+export type PlausibilityScale = "linear" | "log";
+
+export type PlausibilitySpec = {
+  floor: number;
+  ceiling: number;
+  scale: PlausibilityScale;
+};
+
 export type ProductSpec = {
   rateFields: readonly string[];
   sortField: string;
@@ -329,6 +363,7 @@ export type ProductSpec = {
   defaultOrden: "asc" | "desc";
   contextFields: readonly string[];
   criterio: string;
+  plausibility: PlausibilitySpec;
 };
 
 export const PRODUCT_SPECS = {
@@ -343,6 +378,7 @@ export const PRODUCT_SPECS = {
       "denominacion",
       "montoMinimoInvertir",
     ],
+    plausibility: { floor: 0, ceiling: 150, scale: "linear" },
     criterio:
       "Se ordena por tasaEfectivaAnualMinima. Plazos fijos no publica TNA ni TEA máxima: el único campo de tasa en la respuesta es la TEA mínima. En modo entidad se conserva la oferta extrema de cada entidad. Los productos UVA suelen informar 0 porque el ajuste no está en la TEA. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. plazoMinimoInvertirDesde y plazoMinimoInvertirHasta filtran el entero publicado en plazoMinimoInvertirDias. Ese entero no es una cantidad de días: el catálogo vivo trae 0 a 5, y el PDF del régimen lista 30, 60, 90, 180 y 360. Esta tool no traduce el código. Un 1 no es un plazo de un día. No hay filtro por tipo de entidad: Transparencia y el padrón de entidades no publican clase ni grupo.",
   },
@@ -356,7 +392,9 @@ export const PRODUCT_SPECS = {
       "tipoTasa",
       "plazoMaximoOtorgable",
       "destinoFondos",
+      "denominacion",
     ],
+    plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
     criterio:
       "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
@@ -370,7 +408,9 @@ export const PRODUCT_SPECS = {
       "tipoTasa",
       "plazoMaximoOtorgable",
       "destinoFondos",
+      "denominacion",
     ],
+    plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
     criterio:
       "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Pesos y UVA quedan en el mismo ranking: use buscar para separarlos. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
@@ -384,7 +424,9 @@ export const PRODUCT_SPECS = {
       "tipoTasa",
       "plazoMaximoOtorgable",
       "destinoFondos",
+      "denominacion",
     ],
+    plausibility: { floor: 1, ceiling: 10_000, scale: "log" },
     criterio:
       "Se ordena por costoFinancieroEfectivoTotalMaximo y también se informa tasaEfectivaAnualMaxima. El CFT es el costo total comparable del régimen de transparencia. Si una oferta no trae CFT numérico, se usa la TEA máxima y puede no ser comparable. Por defecto, menor costo primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Un CFT distinto de cero se conserva aunque la TEA sea 0. plazoMaximoOtorgable queda en el contexto en meses, según el PDF del régimen, y no se filtra con plazoMinimoInvertirDias. No hay tipo de entidad en la respuesta.",
   },
@@ -397,6 +439,7 @@ export const PRODUCT_SPECS = {
     fallbackSortField: null,
     defaultOrden: "asc",
     contextFields: ["segmento"],
+    plausibility: { floor: 1, ceiling: 2_500, scale: "linear" },
     criterio:
       "Se ordena por tasaEfectivaAnualMaximaFinanciacion y también se informa tasaEfectivaAnualMaximaAdelantoEfectivo. Esta API no publica un costo financiero total. Por defecto, menor tasa de financiación primero. Por defecto se excluyen tasas nulas y ceros del campo de orden; incluirTasasCero las conserva. Esta respuesta no trae plazo ni tipo de entidad.",
   },
@@ -486,6 +529,17 @@ export const readOffers = (
     throw seriesMismatch("BCRA transparency rows had no usable entity identity");
   }
   return { offers, sinTasa, invalid };
+};
+
+export const offersMatchingSearch = (
+  offers: readonly RankedOffer[],
+  buscar?: string,
+): RankedOffer[] => {
+  const needle = buscar?.trim().toLocaleLowerCase("es");
+  if (!needle) {
+    return [...offers];
+  }
+  return offers.filter((offer) => searchText(offer).includes(needle));
 };
 
 const searchText = (offer: RankedOffer): string =>
@@ -603,6 +657,160 @@ export const applyRankingFilters = (
     matched.push(offer);
   }
   return { offers: matched, ofertasTasaCero, ofertasFueraDePlazo };
+};
+
+const medianOf = (values: readonly number[]): number => {
+  const sorted = [...values].sort((left, right) => left - right);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[mid] ?? 0;
+  }
+  return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+};
+
+const groupLabel = (offer: RankedOffer): string => {
+  const value = offer.contexto.denominacion;
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.trim();
+  }
+  return "sin denominacion";
+};
+
+export type PlausibilityLimit = {
+  grupo: string;
+  n: number;
+  escala: "lineal" | "logaritmica" | "cota";
+  mediana: number | null;
+  mad: number | null;
+  inferior: number;
+  superior: number;
+};
+
+export type DiscardedRate = {
+  codigoEntidad: number;
+  descripcionEntidad: string;
+  nombreCorto: string | null;
+  nombreCompleto: string | null;
+  campo: string;
+  valor: number;
+  denominacion: string | null;
+  motivo: string;
+};
+
+const boundsForGroup = (
+  values: readonly number[],
+  spec: PlausibilitySpec,
+  grupo: string,
+): PlausibilityLimit => {
+  const fallback: PlausibilityLimit = {
+    grupo,
+    n: values.length,
+    escala: "cota",
+    mediana: null,
+    mad: null,
+    inferior: spec.floor,
+    superior: spec.ceiling,
+  };
+  if (values.length < MIN_PLAUSIBILITY_SAMPLE) {
+    return fallback;
+  }
+  const transformed =
+    spec.scale === "log" ? values.map((value) => Math.log(value)) : values;
+  const center = medianOf(transformed);
+  const mad = medianOf(transformed.map((value) => Math.abs(value - center)));
+  const mediana = spec.scale === "log" ? Math.exp(center) : center;
+  if (mad === 0) {
+    return { ...fallback, mediana: roundTo(mediana, 4), mad: 0 };
+  }
+  const span = (MODIFIED_Z_CUTOFF / MAD_SIGMA_FACTOR) * mad;
+  const rawLower = center - span;
+  const rawUpper = center + span;
+  const inferior = spec.scale === "log" ? Math.exp(rawLower) : rawLower;
+  const superior = spec.scale === "log" ? Math.exp(rawUpper) : rawUpper;
+  return {
+    grupo,
+    n: values.length,
+    escala: spec.scale === "log" ? "logaritmica" : "lineal",
+    mediana: roundTo(mediana, 4),
+    mad: roundTo(mad, 4),
+    inferior: roundTo(Math.max(spec.floor, inferior), 4),
+    superior: roundTo(Math.min(spec.ceiling, superior), 4),
+  };
+};
+
+const discardReason = (
+  value: number,
+  spec: PlausibilitySpec,
+  limit: PlausibilityLimit,
+): string | null => {
+  if (value >= limit.inferior && value <= limit.superior) {
+    return null;
+  }
+  if (value < spec.floor) {
+    return `${value} está por debajo de la cota mínima ${spec.floor}`;
+  }
+  if (value > spec.ceiling) {
+    return `${value} está por encima de la cota máxima ${spec.ceiling}`;
+  }
+  const where = `escala ${limit.escala}, grupo ${limit.grupo}, mediana ${limit.mediana}, MAD ${limit.mad}, z modificado > ${MODIFIED_Z_CUTOFF}`;
+  if (value < limit.inferior) {
+    return `${value} está por debajo del piso ${limit.inferior} (${where})`;
+  }
+  return `${value} está por encima del techo ${limit.superior} (${where})`;
+};
+
+export const partitionByPlausibility = (
+  offers: readonly RankedOffer[],
+  spec: PlausibilitySpec,
+): {
+  kept: RankedOffer[];
+  outliers: RankedOffer[];
+  discarded: DiscardedRate[];
+  limits: PlausibilityLimit[];
+} => {
+  const groups = new Map<string, RankedOffer[]>();
+  for (const offer of offers) {
+    const label = groupLabel(offer);
+    const current = groups.get(label) ?? [];
+    current.push(offer);
+    groups.set(label, current);
+  }
+  const limits: PlausibilityLimit[] = [];
+  const kept: RankedOffer[] = [];
+  const outliers: RankedOffer[] = [];
+  const discarded: DiscardedRate[] = [];
+  for (const [grupo, groupOffers] of groups) {
+    const positive = groupOffers
+      .map((offer) => offer.sortKey)
+      .filter((value) => value > 0 && Number.isFinite(value));
+    const limit = boundsForGroup(positive, spec, grupo);
+    limits.push(limit);
+    for (const offer of groupOffers) {
+      const motivo = discardReason(offer.sortKey, spec, limit);
+      if (motivo === null) {
+        kept.push(offer);
+        continue;
+      }
+      outliers.push(offer);
+      const denominacion = groupLabel(offer);
+      discarded.push({
+        codigoEntidad: offer.codigoEntidad,
+        descripcionEntidad: offer.descripcionEntidad,
+        nombreCorto: offer.nombreCorto,
+        nombreCompleto: offer.nombreCompleto,
+        campo: offer.campoOrden,
+        valor: offer.sortKey,
+        denominacion: denominacion === "sin denominacion" ? null : denominacion,
+        motivo,
+      });
+    }
+  }
+  discarded.sort(
+    (left, right) =>
+      right.valor - left.valor || left.codigoEntidad - right.codigoEntidad,
+  );
+  limits.sort((left, right) => left.grupo.localeCompare(right.grupo, "es"));
+  return { kept, outliers, discarded, limits };
 };
 
 export const rankOffers = (

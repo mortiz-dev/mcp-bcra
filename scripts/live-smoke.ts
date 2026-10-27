@@ -43,10 +43,29 @@ for (const producto of [
   "prestamosPrendarios",
   "tarjetas",
 ] as const) {
-  const ranking = await analisis.rankRates({ producto, limit: 1 });
-  const top = ranking.resultados[0];
+  const ranking = await analisis.rankRates({ producto, limit: 3 });
+  const top = ranking.resultados
+    .map(
+      (row) =>
+        `${row.posicion}:${row.codigoEntidad}:${row.tasas[row.campoOrden]}:${String(row.contexto.denominacion ?? "")}`,
+    )
+    .join(" | ");
+  const bounds = ranking.limitesPlausibilidad
+    .map(
+      (limit) =>
+        `${limit.grupo} n=${limit.n} ${limit.escala} [${limit.inferior},${limit.superior}]`,
+    )
+    .join(" ; ");
+  const discarded = ranking.valoresDescartados
+    .slice(0, 8)
+    .map((row) => `${row.codigoEntidad}:${row.valor}`)
+    .join(",");
   console.log(
-    `Live smoke OK: ranking ${producto} total=${ranking.total} ceros=${ranking.ofertasTasaCero} excluyeCeros=${ranking.excluyeTasasCero} campo=${ranking.campoOrden} top=${top?.codigoEntidad ?? "none"} plazo=${String(top?.contexto.plazoMinimoInvertirDias ?? "")} tasa=${top ? JSON.stringify(top.tasas) : "{}"}`,
+    `Live smoke OK: ranking ${producto} total=${ranking.total} ceros=${ranking.ofertasTasaCero} descartados=${ranking.valoresDescartados.length} top=${top}`,
+  );
+  console.log(`Live smoke bounds ${producto}: ${bounds}`);
+  console.log(
+    `Live smoke discarded ${producto}: ${discarded}${ranking.valoresDescartados.length > 8 ? ",..." : ""}`,
   );
 }
 

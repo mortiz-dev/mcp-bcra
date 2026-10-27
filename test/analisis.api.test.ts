@@ -4,6 +4,9 @@ import {
   addDays,
   computeRealRate,
   daysBetween,
+  PRODUCT_SPECS,
+  partitionByPlausibility,
+  type RankedOffer,
   variation,
 } from "../src/domains/analisis/compute.js";
 import {
@@ -236,6 +239,102 @@ const mockClient = (
   return { client: { getJson } satisfies BcraHttpClient, getJson };
 };
 
+const rankedOffer = (
+  codigoEntidad: number,
+  sortKey: number,
+  campoOrden: string,
+  denominacion?: string,
+): RankedOffer => ({
+  codigoEntidad,
+  descripcionEntidad: `ENTIDAD ${codigoEntidad}`,
+  nombreCorto: `P${codigoEntidad}`,
+  nombreCompleto: `PRODUCTO ${codigoEntidad}`,
+  fechaInformacion: "2026-10-01",
+  campoOrden,
+  tasas: { [campoOrden]: sortKey },
+  contexto: denominacion ? { denominacion } : {},
+  sortKey,
+});
+
+describe("ranking plausibility", () => {
+  it("bounds a deposit sample and drops the high tail by default", () => {
+    const offers = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((rate, index) =>
+      rankedOffer(index + 1, rate, "tasaEfectivaAnualMinima"),
+    );
+    offers.push(rankedOffer(72614, 97.08, "tasaEfectivaAnualMinima"));
+    const result = partitionByPlausibility(
+      offers,
+      PRODUCT_SPECS.plazosFijos.plausibility,
+    );
+
+    expect(result.limits).toHaveLength(1);
+    const limit = result.limits[0];
+    expect(limit?.escala).toBe("lineal");
+    expect(limit?.grupo).toBe("sin denominacion");
+    expect(limit?.n).toBe(12);
+    expect(limit?.superior).toBeLessThan(97.08);
+    expect(limit?.inferior).toBeGreaterThanOrEqual(0);
+    expect(result.kept.map((offer) => offer.sortKey)).not.toContain(97.08);
+    expect(result.discarded).toEqual([
+      expect.objectContaining({
+        codigoEntidad: 72614,
+        valor: 97.08,
+        campo: "tasaEfectivaAnualMinima",
+        denominacion: null,
+      }),
+    ]);
+    expect(result.discarded[0]?.motivo).toContain("techo");
+  });
+
+  it("uses the log fence and the hard floor for loan CFT", () => {
+    const pesos = [100, 120, 140, 160, 180, 200, 220, 240, 260, 300].map(
+      (rate, index) =>
+        rankedOffer(index + 1, rate, "costoFinancieroEfectivoTotalMaximo", "Pesos"),
+    );
+    pesos.push(rankedOffer(55310, 2.97, "costoFinancieroEfectivoTotalMaximo", "Pesos"));
+    const dollars = [10, 11, 11.5, 12, 12.5, 13, 13.5, 14].map((rate, index) =>
+      rankedOffer(100 + index, rate, "costoFinancieroEfectivoTotalMaximo", "Dólares"),
+    );
+    dollars.push(
+      rankedOffer(55077, 0.5, "costoFinancieroEfectivoTotalMaximo", "Dólares"),
+    );
+    const result = partitionByPlausibility(
+      [...pesos, ...dollars],
+      PRODUCT_SPECS.prestamosPersonales.plausibility,
+    );
+
+    const pesosLimit = result.limits.find((limit) => limit.grupo === "Pesos");
+    const dollarLimit = result.limits.find((limit) => limit.grupo === "Dólares");
+    expect(pesosLimit?.escala).toBe("logaritmica");
+    expect(pesosLimit?.inferior).toBeGreaterThan(2.97);
+    expect(dollarLimit?.inferior).toBeGreaterThanOrEqual(1);
+    expect(result.kept.some((offer) => offer.sortKey === 2.97)).toBe(false);
+    expect(result.kept.some((offer) => offer.sortKey === 0.5)).toBe(false);
+    expect(result.kept.some((offer) => offer.sortKey === 11)).toBe(true);
+    expect(
+      result.discarded.map((row) => row.valor).sort((left, right) => left - right),
+    ).toEqual([0.5, 2.97]);
+    expect(result.discarded.find((row) => row.valor === 0.5)?.motivo).toContain(
+      "cota mínima",
+    );
+  });
+
+  it("falls back to the hard ceiling when MAD is zero", () => {
+    const offers = Array.from({ length: 8 }, (_, index) =>
+      rankedOffer(index + 1, 20, "tasaEfectivaAnualMinima"),
+    );
+    offers.push(rankedOffer(99, 500, "tasaEfectivaAnualMinima"));
+    const result = partitionByPlausibility(
+      offers,
+      PRODUCT_SPECS.plazosFijos.plausibility,
+    );
+    expect(result.limits[0]?.escala).toBe("cota");
+    expect(result.limits[0]?.mad).toBe(0);
+    expect(result.discarded.map((row) => row.valor)).toEqual([500]);
+    expect(result.discarded[0]?.motivo).toContain("cota máxima");
+  });
+});
+
 describe("analisis computations", () => {
   it("uses simple 365-day interest and the Fisher real rate", () => {
     expect(
@@ -338,10 +437,12 @@ describe("analisis API", () => {
         row.ofertasEntidad,
       ]),
     ).toEqual([
-      [20, "costoFinancieroEfectivoTotalMaximo", 0.33, 1],
       [11, "costoFinancieroEfectivoTotalMaximo", 50, 1],
       [7, "costoFinancieroEfectivoTotalMaximo", 100, 2],
     ]);
+    expect(loans.valoresDescartados.map((row) => row.valor)).toEqual([0.33]);
+    expect(loans.valoresDescartados[0]?.motivo).toContain("cota mínima");
+    expect(loans.resultados.every((row) => row.atipico === false)).toBe(true);
 
     const truncated = await api.rankRates({
       producto: "plazosFijos",
@@ -450,6 +551,57 @@ describe("analisis API", () => {
         plazoMinimoInvertirHasta: 1,
       }),
     ).rejects.toMatchObject({ kind: "UNSUPPORTED_CAPABILITY" });
+  });
+
+  it("reports discarded outliers and can opt them back in", async () => {
+    const offers = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((rate, index) => ({
+      codigoEntidad: index + 1,
+      descripcionEntidad: `BANCO ${index + 1}`,
+      nombreCorto: `PF${index + 1}`,
+      nombreCompleto: "PLAZO FIJO",
+      fechaInformacion: "2026-10-21",
+      tasaEfectivaAnualMinima: rate,
+      plazoMinimoInvertirDias: 1,
+    }));
+    offers.push({
+      codigoEntidad: 72614,
+      descripcionEntidad: "MUTUAL DE DOCENTES",
+      nombreCorto: "AHORRO",
+      nombreCompleto: "AHORRO",
+      fechaInformacion: "2026-10-05",
+      tasaEfectivaAnualMinima: 97.08,
+      plazoMinimoInvertirDias: 1,
+    });
+    const { client } = mockClient(undefined, offers);
+    const api = createAnalisisApi(client, { now: () => NOW });
+
+    const hidden = await api.rankRates({
+      producto: "plazosFijos",
+      modo: "oferta",
+      limit: 20,
+    });
+    expect(rankingResponseSchema.parse(hidden).excluyeValoresAtipicos).toBe(true);
+    expect(hidden.valoresDescartados.map((row) => row.codigoEntidad)).toEqual([72614]);
+    expect(hidden.resultados.some((row) => row.codigoEntidad === 72614)).toBe(false);
+    expect(hidden.resultados.every((row) => row.atipico === false)).toBe(true);
+    expect(hidden.limitesPlausibilidad[0]?.superior).toBeLessThan(97.08);
+
+    const shown = await api.rankRates({
+      producto: "plazosFijos",
+      modo: "oferta",
+      incluirValoresAtipicos: true,
+      limit: 20,
+    });
+    expect(shown.valoresDescartados).toEqual([]);
+    expect(shown.filtros.incluirValoresAtipicos).toBe(true);
+    expect(shown.resultados.find((row) => row.codigoEntidad === 72614)?.atipico).toBe(
+      true,
+    );
+    expect(
+      shown.resultados
+        .filter((row) => row.codigoEntidad !== 72614)
+        .every((row) => row.atipico === false),
+    ).toBe(true);
   });
 
   it("rejects a transparency payload without entity identity", async () => {
